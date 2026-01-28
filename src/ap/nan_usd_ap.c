@@ -150,6 +150,10 @@ int hostapd_nan_usd_init(struct hostapd_data *hapd)
 {
 	struct nan_callbacks cb;
 
+	/* If nan_de is already initialized, do not create a new instance. */
+	if (hapd->nan_de)
+		return 0;
+
 	os_memset(&cb, 0, sizeof(cb));
 	cb.ctx = hapd;
 	cb.tx = hostapd_nan_de_tx;
@@ -163,13 +167,19 @@ int hostapd_nan_usd_init(struct hostapd_data *hapd)
 	hapd->nan_de = nan_de_init(hapd->own_addr, false, true, 0, &cb);
 	if (!hapd->nan_de)
 		return -1;
+
+	hapd->nan_de_is_owned = true;
+
 	return 0;
 }
 
 
 void hostapd_nan_usd_deinit(struct hostapd_data *hapd)
 {
-	nan_de_deinit(hapd->nan_de);
+	if (hapd->nan_de_is_owned) {
+		nan_de_deinit(hapd->nan_de);
+		hapd->nan_de_is_owned = false;
+	}
 	hapd->nan_de = NULL;
 }
 

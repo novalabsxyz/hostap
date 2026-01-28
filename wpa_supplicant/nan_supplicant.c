@@ -12,6 +12,7 @@
 #include "common.h"
 #include "utils/eloop.h"
 #include "common/nan_de.h"
+#include "ap/hostapd.h"
 #include "wpa_supplicant_i.h"
 #include "driver_i.h"
 #include "nan/nan.h"
@@ -802,6 +803,12 @@ int wpas_nan_publish(struct wpa_supplicant *wpa_s, const char *service_name,
 		nan_de_cancel_publish(wpa_s->nan_de, publish_id);
 		publish_id = -1;
 	}
+#ifdef CONFIG_AP
+	if (publish_id >= 1 && wpa_s->ap_iface && wpa_s->ap_iface->bss[0]) {
+		wpa_printf(MSG_DEBUG, "NAN: Linking nan_de for AP interface");
+		wpa_s->ap_iface->bss[0]->nan_de = wpa_s->nan_de;
+	}
+#endif /* CONFIG_AP */
 
 	wpabuf_free(elems);
 	return publish_id;
@@ -956,6 +963,12 @@ int wpas_nan_subscribe(struct wpa_supplicant *wpa_s,
 		nan_de_cancel_subscribe(wpa_s->nan_de, subscribe_id);
 		subscribe_id = -1;
 	}
+#ifdef CONFIG_AP
+	if (subscribe_id >= 1 && wpa_s->ap_iface && wpa_s->ap_iface->bss[0]) {
+		wpa_printf(MSG_DEBUG, "NAN: Linking nan_de for AP interface");
+		wpa_s->ap_iface->bss[0]->nan_de = wpa_s->nan_de;
+	}
+#endif /* CONFIG_AP */
 
 	wpabuf_free(elems);
 	return subscribe_id;

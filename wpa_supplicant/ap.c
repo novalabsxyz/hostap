@@ -1157,6 +1157,14 @@ int wpa_supplicant_create_ap(struct wpa_supplicant *wpa_s,
 			wpa_s->ext_eapol_frame_io;
 #endif /* CONFIG_TESTING_OPTIONS */
 
+#ifdef CONFIG_NAN_USD
+		/*
+		 * Copy NAN DE pointer from wpa_supplicant to hostapd for AP
+		 * to continue processing NAN USD frames.
+		 */
+		hapd_iface->bss[i]->nan_de = wpa_s->nan_de;
+#endif /* CONFIG_NAN_USD */
+
 #ifdef CONFIG_WNM_AP
 		if (ssid->mode == WPAS_MODE_AP)
 			hapd_iface->bss[i]->conf->bss_transition = 1;
