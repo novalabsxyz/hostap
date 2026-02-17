@@ -1684,6 +1684,10 @@ struct wpa_supplicant {
 	struct nan_data *nan;
 	struct nan_cluster_config nan_config;
 #endif /* CONFIG_NAN */
+#ifdef CONFIG_ENC_ASSOC
+	bool assoc_resp_encrypted; /* Whether (Re)Association Response frame
+				    * is encrypted. */
+#endif /* CONFIG_ENC_ASSOC */
 };
 
 

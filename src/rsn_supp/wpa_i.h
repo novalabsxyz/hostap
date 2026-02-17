@@ -225,6 +225,9 @@ struct wpa_sm {
 	u8 fils_ft[FILS_FT_MAX_LEN];
 	size_t fils_ft_len;
 #endif /* CONFIG_FILS */
+#ifdef CONFIG_ENC_ASSOC
+	unsigned int eppke_completed:1;
+#endif /* CONFIG_ENC_ASSOC */
 
 #ifdef CONFIG_OWE
 	struct crypto_ecdh *owe_ecdh;

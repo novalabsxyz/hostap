@@ -3649,6 +3649,30 @@ static bool is_dfs_owner_ap(struct wpa_supplicant *wpa_s, struct wpa_bss *bss)
 #endif /* CONFIG_P2P */
 
 
+#ifdef CONFIG_ENC_ASSOC
+static int wpas_rx_enc_assoc_resp(struct wpa_supplicant *wpa_s, const u8 *aa,
+				  const u8 *resp_ies, size_t resp_ies_len)
+{
+	struct ptksa_cache_entry *entry;
+
+	entry = ptksa_cache_get(wpa_s->ptksa, aa, wpa_s->pairwise_cipher);
+	if (!entry || entry->auth_alg != WLAN_AUTH_EPPKE)
+		return 0;
+
+	wpa_sm_set_ptk_kck_kek(wpa_s->wpa, entry->ptk.hash_alg,
+			       entry->ptk.kck, entry->ptk.kck_len,
+			       entry->ptk.kek, entry->ptk.kek_len);
+
+	return process_encrypted_assoc_resp(wpa_s->wpa,
+					    ((wpa_s->drv_flags2 &
+					      WPA_DRIVER_FLAGS2_MLO) &&
+					     wpa_s->valid_links) ?
+					    wpa_s->valid_links : -1,
+					    resp_ies, resp_ies_len);
+}
+#endif /* CONFIG_ENC_ASSOC */
+
+
 static int wpa_supplicant_event_associnfo(struct wpa_supplicant *wpa_s,
 					  union wpa_event_data *data)
 {
@@ -3664,6 +3688,16 @@ static int wpa_supplicant_event_associnfo(struct wpa_supplicant *wpa_s,
 	wpa_dbg(wpa_s, MSG_DEBUG, "Association info event");
 	wpa_s->ssid_verified = false;
 	wpa_s->bigtk_set = false;
+#ifdef CONFIG_ENC_ASSOC
+	if (data->assoc_info.resp_frame &&
+	    data->assoc_info.resp_frame_len >= 2 &&
+	    WPA_GET_LE16(data->assoc_info.resp_frame) && WLAN_FC_PROTECTED) {
+		wpa_printf(MSG_INFO, "Association Response frame is encrypted");
+		wpa_s->assoc_resp_encrypted = true;
+	} else {
+		wpa_s->assoc_resp_encrypted = false;
+	}
+#endif /* CONFIG_ENC_ASSOC */
 #ifdef CONFIG_SAE
 #ifdef CONFIG_SME
 	/* SAE H2E binds the SSID into PT and that verifies the SSID
@@ -3795,6 +3829,19 @@ static int wpa_supplicant_event_associnfo(struct wpa_supplicant *wpa_s,
 	    !(wpa_s->drv_flags & WPA_DRIVER_FLAGS_SME))
 		wpa_sm_set_reset_fils_completed(wpa_s->wpa, 1);
 #endif /* CONFIG_FILS */
+
+#ifdef CONFIG_ENC_ASSOC
+	if (wpa_s->assoc_resp_encrypted &&
+	    (wpa_s->drv_flags2 &
+	     WPA_DRIVER_FLAGS2_ASSOCIATION_FRAME_ENCRYPTION) &&
+	    wpas_rx_enc_assoc_resp(wpa_s, wpa_s->valid_links ?
+				   wpa_s->ap_mld_addr : bssid,
+				   data->assoc_info.resp_ies,
+				   data->assoc_info.resp_ies_len) < 0) {
+		wpa_supplicant_deauthenticate(wpa_s, WLAN_REASON_UNSPECIFIED);
+		return -1;
+	}
+#endif /* CONFIG_ENC_ASSOC */
 
 #ifdef CONFIG_OWE
 	if (wpa_s->key_mgmt == WPA_KEY_MGMT_OWE &&
