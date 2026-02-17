@@ -54,6 +54,7 @@ struct rsn_pmksa_cache_entry {
 	 * PMKSA for SAE.
 	 */
 	bool sae_reauth_scheduled;
+	u16 auth_alg;
 };
 
 struct rsn_pmksa_cache;
@@ -84,7 +85,7 @@ struct rsn_pmksa_cache_entry *
 pmksa_cache_add(struct rsn_pmksa_cache *pmksa, const u8 *pmk, size_t pmk_len,
 		const u8 *pmkid, const u8 *kck, size_t kck_len,
 		const u8 *aa, const u8 *spa, void *network_ctx, int akmp,
-		const u8 *cache_id);
+		const u8 *cache_id, u16 auth_alg);
 struct rsn_pmksa_cache_entry *
 pmksa_cache_add_entry(struct rsn_pmksa_cache *pmksa,
 		      struct rsn_pmksa_cache_entry *entry);

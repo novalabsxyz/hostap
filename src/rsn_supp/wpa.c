@@ -407,7 +407,7 @@ static int wpa_supplicant_get_pmk(struct wpa_sm *sm,
 						     src_addr, sm->own_addr,
 						     sm->network_ctx,
 						     sm->key_mgmt,
-						     fils_cache_id);
+						     fils_cache_id, 0);
 				if (!sm->cur_pmksa)
 					sm->cur_pmksa = sa;
 			}
@@ -435,7 +435,7 @@ static int wpa_supplicant_get_pmk(struct wpa_sm *sm,
 						     src_addr, sm->own_addr,
 						     sm->network_ctx,
 						     sm->key_mgmt,
-						     fils_cache_id);
+						     fils_cache_id, 0);
 			}
 			if (!sm->cur_pmksa && pmkid &&
 			    pmksa_cache_get(sm->pmksa, src_addr, sm->own_addr,
@@ -3048,7 +3048,7 @@ static void wpa_supplicant_process_3_of_4(struct wpa_sm *sm,
 		sa = pmksa_cache_add(sm->pmksa, sm->pmk, sm->pmk_len, NULL,
 				     sm->ptk.kck, sm->ptk.kck_len,
 				     wpa_sm_get_auth_addr(sm), sm->own_addr,
-				     sm->network_ctx, sm->key_mgmt, NULL);
+				     sm->network_ctx, sm->key_mgmt, NULL, 0);
 		if (!sm->cur_pmksa)
 			sm->cur_pmksa = sa;
 	}
@@ -4690,7 +4690,7 @@ void wpa_sm_set_pmk(struct wpa_sm *sm, const u8 *pmk, size_t pmk_len,
 						pmkid, NULL, 0, bssid,
 						sm->own_addr,
 						sm->network_ctx, sm->key_mgmt,
-						NULL);
+						NULL, 0);
 	}
 }
 
@@ -5806,7 +5806,7 @@ void wpa_sm_pmksa_cache_add(struct wpa_sm *sm, const u8 *pmk, size_t pmk_len,
 {
 	sm->cur_pmksa = pmksa_cache_add(sm->pmksa, pmk, pmk_len, pmkid, NULL, 0,
 					bssid, sm->own_addr, sm->network_ctx,
-					sm->key_mgmt, fils_cache_id);
+					sm->key_mgmt, fils_cache_id, 0);
 }
 
 
@@ -6448,7 +6448,7 @@ int fils_process_auth(struct wpa_sm *sm, const u8 *bssid, const u8 *data,
 						sm->fils_erp_pmkid, NULL, 0,
 						sm->bssid, sm->own_addr,
 						sm->network_ctx, sm->key_mgmt,
-						NULL);
+						NULL, 0);
 	}
 
 	if (!sm->cur_pmksa) {
@@ -7318,7 +7318,7 @@ int owe_process_assoc_resp(struct wpa_sm *sm, const u8 *bssid,
 	wpa_hexdump(MSG_DEBUG, "OWE: PMKID", pmkid, PMKID_LEN);
 	pmksa_cache_add(sm->pmksa, sm->pmk, sm->pmk_len, pmkid, NULL, 0,
 			bssid, sm->own_addr, sm->network_ctx, sm->key_mgmt,
-			NULL);
+			NULL, 0);
 
 	return 0;
 }
