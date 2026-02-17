@@ -420,3 +420,5 @@ CONFIG_DPP2=y
 # Encrypted association frame support (needed for EPPKE and EAP in
 # Authentication frames)
 #CONFIG_ENC_ASSOC=y
+# PMKSA caching privacy support
+#CONFIG_PMKSA_PRIVACY=y
