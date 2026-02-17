@@ -148,6 +148,11 @@ static int pasn_wd_handle_sae_commit(struct pasn_data *pasn,
 		return -1;
 	}
 
+#ifdef CONFIG_ENC_ASSOC
+	if (pasn->auth_alg == WLAN_AUTH_EPPKE && pasn->is_ml_peer)
+		own_addr = pasn->mld_addr;
+#endif /* CONFIG_ENC_ASSOC */
+
 	ret = sae_prepare_commit_pt(&pasn->sae, pasn->pt, own_addr, peer_addr,
 				    NULL, NULL);
 	if (ret) {
@@ -576,6 +581,18 @@ int handle_auth_pasn_resp(struct pasn_data *pasn, const u8 *own_addr,
 
 	wpa_pasn_add_extra_ies(buf, pasn->extra_ies, pasn->extra_ies_len);
 
+#ifdef CONFIG_ENC_ASSOC
+	if (pasn->auth_alg == WLAN_AUTH_EPPKE && pasn->is_ml_peer) {
+		wpa_printf(MSG_DEBUG, "EPPKE: Add Multi Link element");
+		wpabuf_put_u8(buf, WLAN_EID_EXTENSION);
+		wpabuf_put_u8(buf, 10);
+		wpabuf_put_u8(buf, WLAN_EID_EXT_MULTI_LINK);
+		wpabuf_put_le16(buf, MULTI_LINK_CONTROL_TYPE_BASIC);
+		wpabuf_put_u8(buf, ETH_ALEN + 1);
+		wpabuf_put_data(buf, pasn->mld_addr, ETH_ALEN);
+	}
+#endif /* CONFIG_ENC_ASSOC */
+
 	/* Add the mic */
 	mic_len = pasn_mic_len(pasn->hash_alg);
 	wpabuf_put_u8(buf, WLAN_EID_MIC);
@@ -728,6 +745,18 @@ int handle_auth_pasn_1(struct pasn_data *pasn,
 		goto send_resp;
 	}
 
+#ifdef CONFIG_ENC_ASSOC
+	/* IEEE 802.11bi/D4.0, 12.16.9 (Enhanced privacy protection key
+	 * exchange) allows the use of SAE-EXT/FT-SAE-EXT as the base AKMP.
+	 */
+	if (mgmt->u.auth.auth_alg == WLAN_AUTH_EPPKE &&
+	    !wpa_key_mgmt_sae_ext_key(rsn_data.key_mgmt)) {
+		wpa_printf(MSG_DEBUG, "EPPKE: Invalid base AKM");
+		status = WLAN_STATUS_INVALID_RSNIE;
+		goto send_resp;
+	}
+#endif /* CONFIG_ENC_ASSOC */
+
 	if (!(rsn_data.key_mgmt & pasn->wpa_key_mgmt) ||
 	    !(rsn_data.pairwise_cipher & pasn->rsn_pairwise)) {
 		wpa_printf(MSG_DEBUG, "PASN: Mismatch in AKMP/cipher");
@@ -757,6 +786,18 @@ int handle_auth_pasn_1(struct pasn_data *pasn,
 	}
 
 	wpa_printf(MSG_DEBUG, "PASN: kek_len=%zu", pasn->kek_len);
+
+#ifdef CONFIG_ENC_ASSOC
+	if (mgmt->u.auth.auth_alg == WLAN_AUTH_EPPKE &&
+	    !ieee802_11_rsnx_capab_len(elems.rsnxe, elems.rsnxe_len,
+				       WLAN_RSNX_CAPAB_ASSOC_FRAME_ENCRYPTION))
+	{
+		wpa_printf(MSG_DEBUG,
+			   "EPPKE: Missing (Re)Association Request/Response frame encryption support in RSNXE");
+		status = WLAN_STATUS_UNSPECIFIED_FAILURE;
+		goto send_resp;
+	}
+#endif /* CONFIG_ENC_ASSOC */
 
 	if (!elems.pasn_params || !elems.pasn_params_len) {
 		wpa_printf(MSG_DEBUG,

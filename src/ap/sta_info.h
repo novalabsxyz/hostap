@@ -99,6 +99,9 @@ struct sta_info {
 	u8 supported_rates[WLAN_SUPP_RATES_MAX];
 	int supported_rates_len;
 	u8 qosinfo; /* Valid when WLAN_STA_WMM is set */
+#ifdef CONFIG_ENC_ASSOC
+	bool epp_sta; /* Indicates if the station is an EPP peer */
+#endif /* CONFIG_ENC_ASSOC */
 
 #ifdef CONFIG_MESH
 	enum mesh_plink_state plink_state;
@@ -445,5 +448,14 @@ void clear_wpa_sm_for_each_partner_link(struct hostapd_data *hapd,
 					struct sta_info *psta);
 void clear_wpa_sm_for_all_sta(struct hostapd_data *hapd,
 			      struct wpa_state_machine *wpa_sm);
+
+static inline bool ap_sta_is_epp(const struct sta_info *sta)
+{
+#ifdef CONFIG_ENC_ASSOC
+	return sta && sta->epp_sta;
+#else /* CONFIG_ENC_ASSOC */
+	return false;
+#endif /* CONFIG_ENC_ASSOC */
+}
 
 #endif /* STA_INFO_H */

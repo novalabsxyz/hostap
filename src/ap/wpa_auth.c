@@ -6960,11 +6960,15 @@ int wpa_auth_pmksa_add_entry(struct wpa_authenticator *wpa_auth,
 
 
 struct rsn_pmksa_cache *
-wpa_auth_get_pmksa_cache(struct wpa_authenticator *wpa_auth)
+wpa_auth_get_pmksa_cache(struct wpa_authenticator *wpa_auth, bool is_ml)
 {
 	if (!wpa_auth || !wpa_auth->pmksa)
 		return NULL;
+#ifdef CONFIG_IEEE80211BE
+	return is_ml ? wpa_auth->ml_pmksa : wpa_auth->pmksa;
+#else /* CONFIG_IEEE80211BE */
 	return wpa_auth->pmksa;
+#endif /* CONFIG_IEEE80211BE */
 }
 
 

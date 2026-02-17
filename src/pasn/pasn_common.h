@@ -50,6 +50,8 @@ struct pasn_data {
 	size_t kdk_len;
 	void *cb_ctx;
 	unsigned int auth_alg;
+	u8 mld_addr[ETH_ALEN];
+	bool is_ml_peer;
 
 #ifdef CONFIG_SAE
 	struct sae_pt *pt;
@@ -212,6 +214,7 @@ void pasn_disable_kdk_derivation(struct pasn_data *pasn);
 void pasn_set_akmp(struct pasn_data *pasn, int akmp);
 void pasn_set_cipher(struct pasn_data *pasn, int cipher);
 void pasn_set_own_addr(struct pasn_data *pasn, const u8 *addr);
+void pasn_set_own_mld_addr(struct pasn_data *pasn, const u8 *addr);
 void pasn_set_peer_addr(struct pasn_data *pasn, const u8 *addr);
 void pasn_set_bssid(struct pasn_data *pasn, const u8 *addr);
 void pasn_set_initiator_pmksa(struct pasn_data *pasn,

@@ -2999,6 +2999,10 @@ static void hapd_initialize_pasn(struct hostapd_data *hapd,
 	pasn_register_callbacks(pasn, hapd, hapd_pasn_send_mlme, NULL);
 	pasn_set_bssid(pasn, hapd->own_addr);
 	pasn_set_own_addr(pasn, hapd->own_addr);
+#if defined(CONFIG_IEEE80211BE) && defined(CONFIG_ENC_ASSOC)
+	if (hapd->conf->mld_ap)
+		pasn_set_own_mld_addr(pasn, hapd->mld->mld_addr);
+#endif /* CONFIG_IEEE80211BE && CONFIG_ENC_ASSOC */
 	pasn_set_peer_addr(pasn, sta->addr);
 	pasn_set_wpa_key_mgmt(pasn, hapd->conf->wpa_key_mgmt);
 	pasn_set_rsn_pairwise(pasn, hapd->conf->rsn_pairwise);
@@ -3019,8 +3023,11 @@ static void hapd_initialize_pasn(struct hostapd_data *hapd,
 	pasn->rsn_ie = wpa_auth_get_wpa_ie(hapd->wpa_auth, &pasn->rsn_ie_len);
 	pasn_set_rsnxe_ie(pasn, hostapd_wpa_ie(hapd, WLAN_EID_RSNX));
 	pasn->disable_pmksa_caching = hapd->conf->disable_pmksa_caching;
-	pasn_set_responder_pmksa(pasn,
-				 wpa_auth_get_pmksa_cache(hapd->wpa_auth));
+	pasn_set_responder_pmksa(
+		pasn,
+		wpa_auth_get_pmksa_cache(hapd->wpa_auth,
+					 ap_sta_is_epp(sta) ?
+					 ap_sta_is_mld(hapd, sta) : false));
 
 	pasn->comeback_after = hapd->conf->pasn_comeback_after;
 	pasn->comeback_idx = hapd->comeback_idx;
@@ -3096,6 +3103,13 @@ static void hapd_pasn_update_params(struct hostapd_data *hapd,
 		wpa_printf(MSG_DEBUG, "PASN: Mismatch in AKMP/cipher");
 		return;
 	}
+
+#ifdef CONFIG_ENC_ASSOC
+	pasn->auth_alg = mgmt->u.auth.auth_alg;
+#ifdef CONFIG_IEEE80211BE
+	pasn->is_ml_peer = sta->mld_info.mld_sta;
+#endif /* CONFIG_IEEE80211BE */
+#endif /* CONFIG_ENC_ASSOC */
 
 	pasn_set_akmp(pasn, rsn_data.key_mgmt);
 	pasn_set_cipher(pasn, rsn_data.pairwise_cipher);
@@ -3235,19 +3249,31 @@ static void handle_auth_pasn(struct hostapd_data *hapd, struct sta_info *sta,
 			return;
 		}
 
-		if (handle_auth_pasn_3(sta->pasn, hapd->own_addr,
-				       sta->addr, mgmt, len) == 0) {
+		ret = handle_auth_pasn_3(sta->pasn, hapd->own_addr, sta->addr,
+					 mgmt, len);
+		if (ret == 0) {
+#ifdef CONFIG_ENC_ASSOC
+			if (ap_sta_is_epp(sta)) {
+				sta->auth_alg = WLAN_AUTH_EPPKE;
+				sta->flags |= WLAN_STA_AUTH;
+			}
+#endif /* CONFIG_ENC_ASSOC */
 			ptksa_cache_add(hapd->ptksa, hapd->own_addr, sta->addr,
 					pasn_get_cipher(sta->pasn), 43200,
 					pasn_get_ptk(sta->pasn), NULL, NULL,
 					pasn_get_akmp(sta->pasn));
-
-			pasn_set_keys_from_cache(hapd, hapd->own_addr,
-						 sta->addr,
-						 pasn_get_cipher(sta->pasn),
-						 pasn_get_akmp(sta->pasn));
+			if (!ap_sta_is_epp(sta))
+				pasn_set_keys_from_cache(
+					hapd, hapd->own_addr,
+					sta->addr,
+					pasn_get_cipher(sta->pasn),
+					pasn_get_akmp(sta->pasn));
 		}
-		ap_free_sta(hapd, sta);
+		if (!ap_sta_is_epp(sta) ||
+		    (ret < 0 &&
+		     ap_sta_is_epp(sta) && !ap_sta_is_authorized(sta)))
+			ap_free_sta(hapd, sta);
+
 	} else {
 		wpa_printf(MSG_DEBUG,
 			   "PASN: Invalid transaction %u - ignore", trans_seq);
@@ -3367,6 +3393,12 @@ static void handle_auth(struct hostapd_data *hapd,
 	       (hapd->conf->wpa_key_mgmt & WPA_KEY_MGMT_PASN) &&
 	       auth_alg == WLAN_AUTH_PASN) ||
 #endif /* CONFIG_PASN */
+#ifdef CONFIG_ENC_ASSOC
+	      (hapd->conf->wpa &&
+	       (hapd->conf->wpa_key_mgmt & WPA_KEY_MGMT_EPPKE) &&
+	       hapd->conf->assoc_frame_encryption &&
+	       auth_alg == WLAN_AUTH_EPPKE) ||
+#endif /* CONFIG_ENC_ASSOC */
 	      ((hapd->conf->auth_algs & WPA_AUTH_ALG_SHARED) &&
 	       auth_alg == WLAN_AUTH_SHARED_KEY))) {
 		wpa_printf(MSG_INFO, "Unsupported authentication algorithm (%d)",
@@ -3384,6 +3416,10 @@ static void handle_auth(struct hostapd_data *hapd,
 	      (auth_alg == WLAN_AUTH_PASN &&
 	       auth_transaction == WLAN_AUTH_TR_SEQ_PASN_AUTH3) ||
 #endif /* CONFIG_PASN */
+#ifdef CONFIG_ENC_ASSOC
+	      (auth_alg == WLAN_AUTH_EPPKE &&
+	       auth_transaction == WLAN_AUTH_TR_SEQ_PASN_AUTH3) ||
+#endif /* CONFIG_ENC_ASSOC */
 	      (auth_alg == WLAN_AUTH_SHARED_KEY && auth_transaction == 3))) {
 		wpa_printf(MSG_INFO, "Unknown authentication transaction number (%d)",
 			   auth_transaction);
@@ -3549,6 +3585,13 @@ static void handle_auth(struct hostapd_data *hapd,
 			goto fail;
 		}
 	}
+
+#ifdef CONFIG_ENC_ASSOC
+	if (auth_alg == WLAN_AUTH_EPPKE) {
+		wpa_printf(MSG_DEBUG, "Mark the station as an EPP peer");
+		sta->epp_sta = true;
+	}
+#endif /* CONFIG_ENC_ASSOC */
 
 #ifdef CONFIG_IEEE80211BE
 	/* Set the non-AP MLD information based on the initial Authentication
@@ -3718,6 +3761,9 @@ static void handle_auth(struct hostapd_data *hapd,
 				 handle_auth_fils_finish);
 		return;
 #endif /* CONFIG_FILS */
+#ifdef CONFIG_ENC_ASSOC
+	case WLAN_AUTH_EPPKE:
+#endif /* CONFIG_ENC_ASSOC */
 #ifdef CONFIG_PASN
 	case WLAN_AUTH_PASN:
 		handle_auth_pasn(hapd, sta, mgmt, len, auth_transaction,

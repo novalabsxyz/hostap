@@ -100,6 +100,16 @@ void pasn_set_own_addr(struct pasn_data *pasn, const u8 *addr)
 }
 
 
+#ifdef CONFIG_ENC_ASSOC
+void pasn_set_own_mld_addr(struct pasn_data *pasn, const u8 *addr)
+{
+	if (!pasn || !addr)
+		return;
+	os_memcpy(pasn->mld_addr, addr, ETH_ALEN);
+}
+#endif /* CONFIG_ENC_ASSOC */
+
+
 void pasn_set_peer_addr(struct pasn_data *pasn, const u8 *addr)
 {
 	if (!pasn || !addr)
