@@ -581,6 +581,22 @@ static u8 wpas_pasn_get_wrapped_data_format(struct pasn_data *pasn)
 }
 
 
+static void wpas_pasn_add_mle(struct pasn_data *pasn, struct wpabuf *buf)
+{
+#ifdef CONFIG_ENC_ASSOC
+	if (pasn->auth_alg == WLAN_AUTH_EPPKE && pasn->is_ml_peer) {
+		wpa_printf(MSG_DEBUG, "EPPKE: Include Multi Link element");
+		wpabuf_put_u8(buf, WLAN_EID_EXTENSION);
+		wpabuf_put_u8(buf, 10);
+		wpabuf_put_u8(buf, WLAN_EID_EXT_MULTI_LINK);
+		wpabuf_put_le16(buf, MULTI_LINK_CONTROL_TYPE_BASIC);
+		wpabuf_put_u8(buf, ETH_ALEN + 1);
+		wpabuf_put_data(buf, pasn->own_addr, ETH_ALEN);
+	}
+#endif /* CONFIG_ENC_ASSOC */
+}
+
+
 struct wpabuf * wpas_pasn_build_auth_1(struct pasn_data *pasn,
 				       const struct wpabuf *comeback,
 				       bool verify, bool full_hdr)
@@ -663,6 +679,8 @@ struct wpabuf * wpas_pasn_build_auth_1(struct pasn_data *pasn,
 
 	wpa_pasn_add_extra_ies(buf, pasn->extra_ies, pasn->extra_ies_len);
 
+	wpas_pasn_add_mle(pasn, buf);
+
 	wpabuf_free(pasn->auth1);
 	pasn->auth1 = wpabuf_alloc_copy(wpabuf_head_u8(buf) + IEEE80211_HDRLEN,
 					wpabuf_len(buf) - IEEE80211_HDRLEN);
@@ -738,6 +756,8 @@ struct wpabuf * wpas_pasn_build_auth_3(struct pasn_data *pasn, bool full_hdr)
 		pasn->prepare_data_element(pasn->cb_ctx, pasn->peer_addr);
 
 	wpa_pasn_add_extra_ies(buf, pasn->extra_ies, pasn->extra_ies_len);
+
+	wpas_pasn_add_mle(pasn, buf);
 
 	/* Add the MIC */
 	mic_len = pasn_mic_len(pasn->hash_alg);
