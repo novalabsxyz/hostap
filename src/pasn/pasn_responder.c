@@ -1197,7 +1197,9 @@ int handle_auth_pasn_3(struct pasn_data *pasn, const u8 *own_addr,
 		wpabuf_free(wrapped_data);
 	}
 
-	if (pasn_parse_encrypted_data(pasn, (const u8 *) mgmt, len) < 0) {
+	if (pasn_parse_encrypted_data(pasn, (const u8 *) mgmt->u.auth.variable,
+				      len - offsetof(struct ieee80211_mgmt,
+				      u.auth.variable)) < 0) {
 		wpa_printf(MSG_DEBUG, "PASN: Encrypted data processing failed");
 		goto fail;
 	}

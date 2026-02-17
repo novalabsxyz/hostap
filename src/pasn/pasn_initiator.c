@@ -1171,6 +1171,9 @@ int wpa_pasn_auth_rx(struct pasn_data *pasn, const u8 *data, size_t len,
 	struct wpa_ie_data rsn_data;
 	const struct ieee80211_mgmt *mgmt =
 		(const struct ieee80211_mgmt *) data;
+	const u8 *auth_data = mgmt->u.auth.variable;
+	size_t auth_data_len = len - offsetof(struct ieee80211_mgmt,
+					      u.auth.variable);
 	struct wpabuf *wrapped_data = NULL, *secret = NULL, *frame = NULL;
 	u8 mic[WPA_PASN_MAX_MIC_LEN], out_mic[WPA_PASN_MAX_MIC_LEN];
 	u8 mic_len;
@@ -1200,10 +1203,8 @@ int wpa_pasn_auth_rx(struct pasn_data *pasn, const u8 *data, size_t len,
 		goto fail;
 	}
 
-	if (ieee802_11_parse_elems(mgmt->u.auth.variable,
-				   len - offsetof(struct ieee80211_mgmt,
-						  u.auth.variable),
-				   &elems, 0) == ParseFailed) {
+	if (ieee802_11_parse_elems(auth_data, auth_data_len, &elems, 0) ==
+	    ParseFailed) {
 		wpa_printf(MSG_DEBUG,
 			   "PASN: Failed parsing Authentication frame");
 		goto fail;
@@ -1431,7 +1432,7 @@ int wpa_pasn_auth_rx(struct pasn_data *pasn, const u8 *data, size_t len,
 
 	wpa_printf(MSG_DEBUG, "PASN: Success verifying Authentication frame");
 
-	if (pasn_parse_encrypted_data(pasn, data, len) < 0) {
+	if (pasn_parse_encrypted_data(pasn, auth_data, auth_data_len) < 0) {
 		wpa_printf(MSG_DEBUG, "PASN: Encrypted data processing failed");
 		goto fail;
 	}

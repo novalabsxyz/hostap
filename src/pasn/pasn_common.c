@@ -332,14 +332,7 @@ int pasn_parse_encrypted_data(struct pasn_data *pasn, const u8 *data,
 	u8 *buf;
 	u16 buf_len;
 	struct ieee802_11_elems elems;
-	const struct ieee80211_mgmt *mgmt =
-		(const struct ieee80211_mgmt *) data;
-
-	if (len < 24 + 6 ||
-	    ieee802_11_parse_elems(mgmt->u.auth.variable,
-				   len - offsetof(struct ieee80211_mgmt,
-						  u.auth.variable),
-				   &elems, 0) == ParseFailed) {
+	if (ieee802_11_parse_elems(data, len, &elems, 0) == ParseFailed) {
 		wpa_printf(MSG_DEBUG,
 			   "PASN: Failed parsing Authentication frame");
 		return -1;
