@@ -1144,7 +1144,8 @@ class WpaSupplicant:
                       "ssid_protection",
                       "sae_pwe",
                       "sae_password_id_change",
-                      "enable_4addr_mode"]
+                      "enable_4addr_mode",
+                      "pmksa_privacy"]
         for field in not_quoted:
             if field in kwargs and kwargs[field]:
                 self.set_network(id, field, kwargs[field])
