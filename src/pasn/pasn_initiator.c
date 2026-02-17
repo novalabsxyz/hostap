@@ -581,9 +581,9 @@ static u8 wpas_pasn_get_wrapped_data_format(struct pasn_data *pasn)
 }
 
 
-static struct wpabuf * wpas_pasn_build_auth_1(struct pasn_data *pasn,
-					      const struct wpabuf *comeback,
-					      bool verify, bool full_hdr)
+struct wpabuf * wpas_pasn_build_auth_1(struct pasn_data *pasn,
+				       const struct wpabuf *comeback,
+				       bool verify, bool full_hdr)
 {
 	struct wpabuf *buf, *pubkey = NULL, *wrapped_data_buf = NULL;
 	const u8 *pmkid;
@@ -687,8 +687,7 @@ fail:
 }
 
 
-static struct wpabuf * wpas_pasn_build_auth_3(struct pasn_data *pasn,
-					      bool full_hdr)
+struct wpabuf * wpas_pasn_build_auth_3(struct pasn_data *pasn, bool full_hdr)
 {
 	struct wpabuf *buf, *wrapped_data_buf = NULL;
 	u8 mic[WPA_PASN_MAX_MIC_LEN];
