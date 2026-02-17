@@ -49,6 +49,7 @@ struct pasn_data {
 	bool derive_kdk;
 	size_t kdk_len;
 	void *cb_ctx;
+	unsigned int auth_alg;
 
 #ifdef CONFIG_SAE
 	struct sae_pt *pt;

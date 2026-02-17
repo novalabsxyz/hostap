@@ -1594,11 +1594,15 @@ static enum rsn_hash_alg pasn_select_hash_alg(int akmp, int cipher,
 
 
 /**
- * pasn_pmk_to_ptk - Calculate PASN PTK from PMK, addresses, etc.
+ * pasn_pmk_to_ptk - Calculate PASN/EPPKE PTK from PMK, addresses, etc.
  * @pmk: Pairwise master key
  * @pmk_len: Length of PMK
- * @spa: Suppplicant address
- * @bssid: AP BSSID
+ * @spa: For EPPKE authentication, non-AP MLD MAC address is used for MLO. For
+ *	PASN authentication or EPPKE authentication for non-MLO, non-AP STA link
+ *	MAC address is used.
+ * @bssid: For EPPKE authentication, AP MLD MAC address is used for MLO. For
+ *	PASN authentication or EPPKE authentication for non-MLO, AP BSSID is
+ *	used.
  * @dhss: Is the shared secret (DHss) derived from the PASN ephemeral key
  *	exchange encoded as an octet string
  * @dhss_len: The length of dhss in octets
@@ -1608,13 +1612,15 @@ static enum rsn_hash_alg pasn_select_hash_alg(int akmp, int cipher,
  * @kdk_len: the length in octets that should be derived for HTLK. Can be zero.
  * @kek_len: The length in octets that should be derived for KEK. Can be zero.
  * @alg: Output variable for indicating the selected hash algorithm
+ * @is_eppke: EPPKE authentication
  * Returns: 0 on success, -1 on failure
  */
 int pasn_pmk_to_ptk(const u8 *pmk, size_t pmk_len,
 		    const u8 *spa, const u8 *bssid,
 		    const u8 *dhss, size_t dhss_len,
 		    struct wpa_ptk *ptk, int akmp, int cipher,
-		    size_t kdk_len, size_t kek_len, enum rsn_hash_alg *alg)
+		    size_t kdk_len, size_t kek_len, enum rsn_hash_alg *alg,
+		    bool is_eppke)
 {
 	u8 tmp[WPA_KCK_MAX_LEN + WPA_KEK_MAX_LEN + WPA_TK_MAX_LEN +
 	       WPA_KDK_MAX_LEN];
@@ -1622,7 +1628,8 @@ int pasn_pmk_to_ptk(const u8 *pmk, size_t pmk_len,
 	u8 *data;
 	size_t data_len, ptk_len;
 	int ret = -1;
-	const char *label = "PASN PTK Derivation";
+	const char *label = is_eppke ? "EPPKE PTK Derivation" :
+		"PASN PTK Derivation";
 
 	if (!pmk || !pmk_len) {
 		wpa_printf(MSG_ERROR, "PASN: No PMK set for PTK derivation");
@@ -1635,6 +1642,12 @@ int pasn_pmk_to_ptk(const u8 *pmk, size_t pmk_len,
 	}
 
 	/*
+	 * Use "EPPKE PTK Derivation" instead of “PASN PTK Derivation” for
+	 * EPPKE Authentication per IEEE P802.11bi/D4.0, 12.16.9.3.4 (PTKSA
+	 * derivation and MIC computation with EPPKE authentication). For EPPKE
+	 * MLO, the non-AP MLD MAC address is used instead of the SPA and the
+	 * AP MLD MAC address instead of the BSSID.
+	 *
 	 * PASN-PTK = KDF(PMK, “PASN PTK Derivation”, SPA || BSSID || DHss)
 	 *
 	 * KCK = L(PASN-PTK, 0, 256)
@@ -1820,10 +1833,14 @@ int wpa_ltf_keyseed(struct wpa_ptk *ptk, int akmp, int cipher)
  * @alg: Selected hash algorithm from pasn_pmk_to_ptk()
  * @kck: The key confirmation key for the PASN PTKSA
  * @kck_len: KCK length in octets
- * @addr1: For the 2nd PASN frame supplicant address; for the 3rd frame the
- *	BSSID
- * @addr2: For the 2nd PASN frame the BSSID; for the 3rd frame the supplicant
- *	address
+ * @addr1: For the 2nd PASN/EPPKE frame supplicant address is used for non-MLO;
+ *	for MLO, 2nd EPPKE authentication to use non-AP MLD MAC address.
+ *	For the 3rd PASN/EPPKE frame BSSID is used for non-MLO; for MLO, 3rd
+ *	EPPKE authentication to use AP MLD MAC address as per
+ * @addr2: For the 2nd PASN/EPPKE frame BSSID is used for non-MLO; for MLO, 2nd
+ *	EPPKE authentication to use AP MLD MAC address. For the 3rd PASN/EPPKE
+ *	frame supplicant address is used for non-MLO; for MLO, 3rd EPPKE
+ *	Authentication frame to use non-AP MLD MAC address.
  * @data: For calculating the MIC for the 2nd PASN frame, this should hold the
  *	Beacon frame RSNE + RSNXE. For calculating the MIC for the 3rd PASN
  *	frame, this should hold the hash of the body of the PASN 1st frame.

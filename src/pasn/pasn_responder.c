@@ -414,7 +414,8 @@ pasn_derive_keys(struct pasn_data *pasn,
 			      wpabuf_head(secret), wpabuf_len(secret),
 			      &pasn->ptk, pasn->akmp,
 			      pasn->cipher, pasn->kdk_len, pasn->kek_len,
-			      &pasn->hash_alg);
+			      &pasn->hash_alg,
+			      pasn->auth_alg == WLAN_AUTH_EPPKE);
 	if (ret) {
 		wpa_printf(MSG_DEBUG, "PASN: Failed to derive PTK");
 		return -1;

@@ -2814,7 +2814,8 @@ static void pasn_fils_auth_resp(struct hostapd_data *hapd,
 			      wpabuf_len(pasn->secret),
 			      pasn_get_ptk(sta->pasn), pasn_get_akmp(sta->pasn),
 			      pasn_get_cipher(sta->pasn), sta->pasn->kdk_len,
-			      sta->pasn->kek_len, &sta->pasn->hash_alg);
+			      sta->pasn->kek_len, &sta->pasn->hash_alg,
+			      pasn->auth_alg == WLAN_AUTH_EPPKE);
 	if (ret) {
 		wpa_printf(MSG_DEBUG, "PASN: FILS: Failed to derive PTK");
 		goto fail;
