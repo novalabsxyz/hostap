@@ -7211,7 +7211,6 @@ static void radio_work_free(struct wpa_radio_work *work)
 			work->wpa_s->radio->num_active_works);
 	}
 
-	dl_list_del(&work->list);
 	os_free(work);
 }
 
@@ -7404,6 +7403,7 @@ void radio_remove_works(struct wpa_supplicant *wpa_s,
 
 		wpa_dbg(wpa_s, MSG_DEBUG, "Remove radio work '%s'@%p%s",
 			work->type, work, work->started ? " (started)" : "");
+		dl_list_del(&work->list);
 		work->cb(work, 1);
 		radio_work_free(work);
 	}
@@ -7423,6 +7423,7 @@ void radio_remove_pending_work(struct wpa_supplicant *wpa_s, void *ctx)
 			continue;
 		wpa_dbg(wpa_s, MSG_DEBUG, "Free pending radio work '%s'@%p%s",
 			work->type, work, work->started ? " (started)" : "");
+		dl_list_del(&work->list);
 		radio_work_free(work);
 		break;
 	}
@@ -7448,6 +7449,7 @@ static void radio_remove_pending_connect(struct wpa_supplicant *wpa_s,
 		wpa_printf(MSG_DEBUG, "Remove radio work '%s'@%p ssid=%s",
 			   work->type, work,
 			   wpa_ssid_txt(ssid->ssid, ssid->ssid_len));
+		dl_list_del(&work->list);
 		work->cb(work, 1);
 		radio_work_free(work);
 	}
@@ -7583,11 +7585,16 @@ void radio_work_done(struct wpa_radio_work *work)
 	struct os_reltime now, diff;
 	unsigned int started = work->started;
 
+	/* If next is poisoned, then we are free'ing it already */
+	if (work->list.next == NULL)
+		return;
+
 	os_get_reltime(&now);
 	os_reltime_sub(&now, &work->time, &diff);
 	wpa_dbg(wpa_s, MSG_DEBUG, "Radio work '%s'@%p %s in %ld.%06ld seconds",
 		work->type, work, started ? "done" : "canceled",
 		diff.sec, diff.usec);
+	dl_list_del(&work->list);
 	radio_work_free(work);
 	if (started)
 		radio_work_check_next(wpa_s);
