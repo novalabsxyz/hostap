@@ -1215,6 +1215,14 @@ static void nan_ndp_action_notif(struct nan_data *nan, struct nan_peer *peer)
 	notify.ssi = peer->ndp_setup.ssi;
 	notify.ssi_len = peer->ndp_setup.ssi_len;
 
+	if (peer->ndp_setup.sec.present) {
+		notify.csid = peer->ndp_setup.sec.i_csid;
+		notify.pmkid = peer->ndp_setup.sec.i_pmkid;
+	} else {
+		notify.csid = NAN_CS_NONE;
+		notify.pmkid = NULL;
+	}
+
 	wpa_printf(MSG_DEBUG,
 		   "NAN: NDP action notification peer=" MACSTR
 		   ", ndp_status=%u, ndl_status=%u",
