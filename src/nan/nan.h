@@ -387,6 +387,10 @@ struct nan_config {
 
 	struct nan_device_capabilities dev_capa;
 
+	/* Wi-Fi Aware spec v4.0, Table 141 (Capability Info field) */
+	u8 dev_capa_ext_reg_info; /* NAN_DEV_CAPA_EXT_INFO_0_* */
+	u8 dev_capa_ext_pairing_npk_caching; /* NAN_DEV_CAPA_EXT_INFO_1_* */
+
 	/**
 	 * start - Start NAN
 	 * @ctx: Callback context from cb_ctx

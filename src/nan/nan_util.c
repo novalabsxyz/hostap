@@ -376,6 +376,24 @@ int nan_add_csia(struct wpabuf *buf, u8 capab, size_t cs_list_len,
 
 
 /**
+ * nan_add_dev_capa_ext_attr - Add NAN Device Capability Extension attribute
+ * @nan: NAN module context from nan_init()
+ * @buf: wpabuf to which the attribute would be added
+ */
+void nan_add_dev_capa_ext_attr(struct nan_data *nan, struct wpabuf *buf)
+{
+	if (!nan->cfg->dev_capa_ext_reg_info &&
+	    !nan->cfg->dev_capa_ext_pairing_npk_caching)
+		return;
+
+	wpabuf_put_u8(buf, NAN_ATTR_DCEA);
+	wpabuf_put_le16(buf, 2);
+	wpabuf_put_u8(buf, nan->cfg->dev_capa_ext_reg_info);
+	wpabuf_put_u8(buf, nan->cfg->dev_capa_ext_pairing_npk_caching);
+}
+
+
+/**
  * nan_chan_to_chan_idx_map - Convert an op_class and chan to channel bitmap
  * @nan: NAN module context from nan_init()
  * @op_class: the operating class

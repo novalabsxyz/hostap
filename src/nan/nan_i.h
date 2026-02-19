@@ -623,5 +623,6 @@ bool nan_sec_ndp_store_keys(struct nan_data *nan, struct nan_peer *peer,
 int nan_sec_get_tk(struct nan_data *nan, struct nan_peer *peer,
 		   const u8 *peer_ndi, const u8 *local_ndi,
 		   u8 *tk, size_t *tk_len, enum nan_cipher_suite_id *csid);
+void nan_add_dev_capa_ext_attr(struct nan_data *nan, struct wpabuf *buf);
 
 #endif /* NAN_I_H */

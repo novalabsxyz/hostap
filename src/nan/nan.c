@@ -1107,6 +1107,7 @@ static int nan_action_build(struct nan_data *nan, struct nan_peer *peer,
 	nan_action_build_header(nan, buf, subtype);
 
 	nan_add_dev_capa_attr(nan, buf);
+	nan_add_dev_capa_ext_attr(nan, buf);
 
 	ret = nan_ndp_add_ndp_attr(nan, peer, buf);
 	if (ret)
