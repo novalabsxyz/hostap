@@ -299,6 +299,7 @@ struct nan_ndp_action_notif_params {
 
 struct nan_config {
 	void *cb_ctx;
+	u8 nmi_addr[ETH_ALEN];
 
 	struct nan_device_capabilities dev_capa;
 
