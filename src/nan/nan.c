@@ -9,6 +9,7 @@
 #include "includes.h"
 #include "common.h"
 #include "utils/eloop.h"
+#include "common/ieee802_11_common.h"
 #include "nan.h"
 #include "nan_i.h"
 
@@ -1735,4 +1736,281 @@ int nan_peer_get_tk(struct nan_data *nan, const u8 *addr,
 		return -1;
 
 	return nan_sec_get_tk(nan, peer, peer_ndi, local_ndi, tk, tk_len, csid);
+}
+
+
+static void
+nan_peer_get_committed_avail_add(const struct nan_data *nan,
+				 const struct nan_peer *peer,
+				 const struct nan_avail_entry *avail,
+				 struct nan_peer_schedule *sched)
+{
+	struct nan_map *map;
+	struct nan_map_chan *chan;
+	struct nan_sched_chan schan;
+	const struct oper_class_map *op;
+	u8 chan_id;
+	bool committed;
+	int freq, bw, center_freq1, center_freq2, idx;
+	u8 i;
+	const struct nan_band_chan *band_chan;
+	const struct nan_chan_entry *bc_chan;
+
+	if (avail->type != NAN_AVAIL_ENTRY_CTRL_TYPE_COMMITTED &&
+	    avail->type != NAN_AVAIL_ENTRY_CTRL_TYPE_COND)
+		return;
+
+	/*
+	 * This should not happen in practice as committed and conditional
+	 * entries should have only a single channel entry.
+	 */
+	if (avail->n_band_chan != 1) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: Skip availability entry with n_band_chan=%u",
+			   avail->n_band_chan);
+		return;
+	}
+
+	band_chan = &avail->band_chan[0];
+	bc_chan = &band_chan->u.chan;
+
+	/* Get all the channel parameters */
+	op = get_oper_class(NULL, band_chan->u.chan.op_class);
+	if (!op) {
+		wpa_printf(MSG_DEBUG, "NAN: Unknown operating class %u",
+			   band_chan->u.chan.op_class);
+		return;
+	}
+
+	idx = ffs(le_to_host16(bc_chan->chan_bitmap)) - 1;
+	if (idx < 0) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: No channel found in chan_bitmap 0x%04x for oper_class %u",
+			   le_to_host16(bc_chan->chan_bitmap),
+			   bc_chan->op_class);
+		return;
+	}
+
+	chan_id = op_class_idx_to_chan(op, idx);
+	if (!chan_id) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: No channel found for oper_class %u idx %u",
+			   bc_chan->op_class, idx);
+		return;
+	}
+
+	freq = ieee80211_chan_to_freq(NULL, bc_chan->op_class, chan_id);
+	bw = oper_class_bw_to_int(op);
+
+	center_freq2 = 0;
+	if (op->op_class < 128) {
+		center_freq1 = ieee80211_get_center_freq(freq, op->bw);
+	} else if (op->op_class > 130) {
+		wpa_printf(MSG_DEBUG, "NAN: Missing support for op_class %u",
+			   op->op_class);
+		return;
+	} else {
+		idx = ffs(bc_chan->pri_chan_bitmap) - 1;
+		if (idx < 0) {
+			wpa_printf(MSG_DEBUG,
+				   "NAN: No primary channel found in pri_chan_bitmap 0x%04x",
+				   le_to_host16(bc_chan->pri_chan_bitmap));
+			return;
+		}
+
+		center_freq1 = freq;
+		if (op->bw == BW80 || op->bw == BW80P80)
+			freq = freq - 30 + idx * 20;
+		else if (op->bw == BW160)
+			freq = freq - 70 + idx * 20;
+
+		/* TODO: Missing support for 80 + 80 */
+	}
+
+	/* Assume committed for conditional slots if setup is done */
+	committed = (avail->type == NAN_AVAIL_ENTRY_CTRL_TYPE_COMMITTED) ||
+		(avail->type == NAN_AVAIL_ENTRY_CTRL_TYPE_COND &&
+		 peer->ndl->state == NAN_NDL_STATE_DONE &&
+		 peer->ndl->status == NAN_NDL_STATUS_ACCEPTED);
+
+	/* Find map ID entry if already exists */
+	for (i = 0; i < sched->n_maps; i++)
+		if (sched->maps[i].map_id == avail->map_id)
+			break;
+
+	map = &sched->maps[i];
+	if (i == sched->n_maps) {
+		if (sched->n_maps == NAN_MAX_MAPS) {
+			wpa_printf(MSG_DEBUG,
+				   "NAN: Too many map entries in schedule");
+			return;
+		}
+		sched->n_maps++;
+	}
+
+	map->map_id = avail->map_id;
+
+	os_memset(&schan, 0, sizeof(schan));
+
+	/* Find channel entry if already exists */
+	for (i = 0; i < map->n_chans; i++) {
+		if (map->chans[i].committed != committed)
+			return;
+
+		if (map->chans[i].chan.freq == freq &&
+		    map->chans[i].chan.bandwidth == bw &&
+		    map->chans[i].chan.center_freq1 == center_freq1 &&
+		    map->chans[i].chan.center_freq2 == center_freq2)
+			break;
+	}
+
+	chan = &map->chans[i];
+	if (i == map->n_chans) {
+		if (map->n_chans == NAN_MAX_CHAN_ENTRIES) {
+			wpa_printf(MSG_DEBUG,
+				   "NAN: Too many channel entries in schedule map_id=%u",
+				   map->map_id);
+			return;
+		}
+		map->n_chans++;
+	}
+
+	chan->committed = committed;
+	chan->rx_nss = avail->rx_nss;
+	chan->chan.freq = freq;
+	chan->chan.bandwidth = bw;
+	chan->chan.center_freq1 = center_freq1;
+	chan->chan.center_freq2 = center_freq2;
+
+	os_memcpy(&chan->tbm, &avail->tbm, sizeof(avail->tbm));
+}
+
+
+static void nan_peer_get_committed_avail(const struct nan_data *nan,
+					 const struct nan_peer *peer,
+					 struct nan_peer_schedule *sched)
+{
+	const struct nan_avail_entry *avail;
+
+	dl_list_for_each(avail, &peer->info.avail_entries,
+			 struct nan_avail_entry, list)
+		nan_peer_get_committed_avail_add(nan, peer, avail, sched);
+}
+
+
+static void nan_peer_set_sched(struct nan_data *nan, struct nan_peer *peer,
+			       struct nan_peer_schedule *sched,
+			       const u8 *sched_buf, size_t sched_buf_len,
+			       bool ndc)
+{
+	struct dl_list sched_entries;
+	struct nan_avail_entry *cur;
+	int ret;
+
+	if (!sched->n_maps)
+		return;
+
+	if (!sched_buf || !sched_buf_len)
+		return;
+
+	if (sched_buf_len < sizeof(struct nan_sched_entry)) {
+		wpa_printf(MSG_DEBUG, "NAN: Schedule buffer too short=%zu",
+			   sched_buf_len);
+		return;
+	}
+
+	/* Convert the schedule the availability entries */
+	ret = nan_sched_entries_to_avail_entries(nan, &sched_entries,
+						 sched_buf, sched_buf_len);
+	if (ret) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: Failed to parse peer schedule entries");
+		return;
+	}
+
+	/*
+	 * For each schedule entry find the corresponding map in the committed
+	 * schedule and store the copy of the time bitmap.
+	 */
+	dl_list_for_each(cur, &sched_entries, struct nan_avail_entry, list) {
+		struct nan_map *map;
+		unsigned int i;
+
+		for (i = 0; i < sched->n_maps; i++) {
+			map = &sched->maps[i];
+
+			if (map->map_id == cur->map_id)
+				break;
+		}
+
+		if (i == sched->n_maps) {
+			wpa_printf(MSG_DEBUG,
+				   "NAN: No map entry found for map_id=%u in peer schedule",
+				   cur->map_id);
+			continue;
+		}
+
+		if (ndc)
+			os_memcpy(&map->ndc, &cur->tbm, sizeof(cur->tbm));
+		else
+			os_memcpy(&map->immutable, &cur->tbm, sizeof(cur->tbm));
+	}
+
+	nan_flush_avail_entries(&sched_entries);
+}
+
+
+static void nan_peer_get_ndc_sched(struct nan_data *nan,
+				   struct nan_peer *peer,
+				   struct nan_peer_schedule *sched)
+{
+	if (!peer->ndl)
+		return;
+
+	nan_peer_set_sched(nan, peer, sched,
+			   peer->ndl->ndc_sched,
+			   peer->ndl->ndc_sched_len, true);
+}
+
+
+static void nan_peer_get_immut_sched(struct nan_data *nan,
+				     struct nan_peer *peer,
+				     struct nan_peer_schedule *sched)
+{
+	if (!peer->ndl)
+		return;
+
+	nan_peer_set_sched(nan, peer, sched,
+			   peer->ndl->immut_sched,
+			   peer->ndl->immut_sched_len, false);
+}
+
+
+
+/*
+ * nan_peer_get_schedule_info - Get peer's schedule information
+ * @nan: NAN module context from nan_init()
+ * @addr: NAN MAC address of the peer
+ * @sched: on return would hold the schedule information.
+ * Returns: 0 on success; -1 otherwise.
+ */
+int nan_peer_get_schedule_info(struct nan_data *nan, const u8 *addr,
+			       struct nan_peer_schedule *sched)
+{
+	struct nan_peer *peer;
+
+	if (!nan || !sched)
+		return -1;
+
+	os_memset(sched, 0, sizeof(*sched));
+
+	peer = nan_get_peer(nan, addr);
+	if (!peer)
+		return -1;
+
+	nan_peer_get_committed_avail(nan, peer, sched);
+	nan_peer_get_ndc_sched(nan, peer, sched);
+	nan_peer_get_immut_sched(nan, peer, sched);
+
+	return 0;
 }

@@ -1478,3 +1478,113 @@ fail:
 	bitfield_free(res_bf);
 	return NULL;
 }
+
+
+/**
+ * nan_peer_dump_sched_to_buf - Dump peer schedule to a buffer
+ * @sched: Peer schedule
+ * @buf: Output buffer
+ * @buflen: The length of &buf in bytes
+ *
+ * Returns: The number of characters written to the buffer, or -1 on error,
+ * which indicates that the buffer was too small.
+ */
+int nan_peer_dump_sched_to_buf(struct nan_peer_schedule *sched,
+			       char *buf, size_t buflen)
+{
+	int i, j, ret;
+	char *pos = buf;
+	char *end = buf + buflen;
+
+	for (i = 0; i < sched->n_maps; i++) {
+		struct nan_map *map = &sched->maps[i];
+
+		ret = wpa_scnprintf(pos, end - pos,
+				    "MAP [%u]\n\tmap_id=%u\n\tn_chans=%u\n",
+				    i, map->map_id, map->n_chans);
+		if (os_snprintf_error(end - pos, ret))
+			goto err;
+		pos += ret;
+
+		for (j = 0; j < map->n_chans; j++) {
+			struct nan_map_chan *chan = &map->chans[j];
+
+			ret = wpa_scnprintf(pos, end - pos,
+					    "\tchannel[%u]: committed=%u rx_nss=%u freq=%u bw=%u cfreq1=%u cfreq2=%u\n",
+					    j, chan->committed, chan->rx_nss,
+					    chan->chan.freq,
+					    chan->chan.bandwidth,
+					    chan->chan.center_freq1,
+					    chan->chan.center_freq2);
+			if (os_snprintf_error(end - pos, ret))
+				goto err;
+			pos += ret;
+
+			ret = wpa_scnprintf(pos, end - pos,
+					    "\t\tbitmap: period=%u duration=%u offset=%u ",
+					    BIT(6 + chan->tbm.period),
+					    BIT(4 + chan->tbm.duration),
+					    16 * chan->tbm.offset);
+			if (os_snprintf_error(end - pos, ret))
+				goto err;
+			pos += ret;
+
+			ret = wpa_scnprintf(pos, end - pos, "bitmap=");
+			if (os_snprintf_error(end - pos, ret))
+				goto err;
+			pos += ret;
+
+			ret = wpa_snprintf_hex(pos, end - pos, chan->tbm.bitmap,
+					       chan->tbm.len);
+			if (os_snprintf_error(end - pos, ret))
+				goto err;
+			pos += ret;
+
+			ret = wpa_scnprintf(pos, end - pos, "\n");
+			if (os_snprintf_error(end - pos, ret))
+				goto err;
+			pos += ret;
+		}
+
+		ret = wpa_scnprintf(pos, end - pos,
+				    "\tndc: period=%u duration=%u offset=%u bitmap=",
+				    BIT(6 + map->ndc.period),
+				    BIT(4 + map->ndc.duration),
+				    16 * map->ndc.offset);
+		if (os_snprintf_error(end - pos, ret))
+			goto err;
+		pos += ret;
+
+		ret = wpa_snprintf_hex(pos, end - pos, map->ndc.bitmap,
+				       map->ndc.len);
+		if (os_snprintf_error(end - pos, ret))
+			goto err;
+		pos += ret;
+
+		ret = wpa_scnprintf(pos, end - pos,
+				    "\n\timmutable: period=%u duration=%u offset=%u bitmap=",
+				    1 << (6 + map->immutable.period),
+				    1 << (4 + map->immutable.duration),
+				    16 * map->immutable.offset);
+		if (os_snprintf_error(end - pos, ret))
+			goto err;
+		pos += ret;
+
+		ret = wpa_snprintf_hex(pos, end - pos, map->immutable.bitmap,
+				       map->immutable.len);
+		if (os_snprintf_error(end - pos, ret))
+			goto err;
+		pos += ret;
+
+		ret = wpa_scnprintf(pos, end - pos, "\n");
+		if (os_snprintf_error(end - pos, ret))
+			goto err;
+		pos += ret;
+	}
+
+	return pos - buf;
+
+err:
+	wpa_printf(MSG_DEBUG, "NAN: Buffer too small to dump peer schedule");
+	return -1;
+}

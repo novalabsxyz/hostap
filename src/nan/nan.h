@@ -315,6 +315,41 @@ struct nan_ndp_action_notif_params {
 	const u8 *pmkid;
 };
 
+#define NAN_MAX_MAPS 8
+#define NAN_MAX_CHAN_ENTRIES 16
+
+/**
+ * struct nan_peer_schedule - NAN peer schedule information
+ * @n_maps: Number of maps
+ * @maps: Array of maps
+ * @map_id: Map ID
+ * @n_chans: Number of channels in the map
+ * @chans: Array of channels in the map
+ * @committed: Committed schedule bitmap for the channel
+ * @rx_nss: Number of spatial streams supported by the peer for RX on this
+ *     channel
+ * @chan: Channel information
+ * @tbm: Time bitmap for the channel
+ * @ndc: NDC time bitmap for the map
+ * @immutable: Immutable time bitmap for the map
+ */
+struct nan_peer_schedule {
+	u8 n_maps;
+	struct nan_map {
+		u8 map_id;
+		u8 n_chans;
+		struct nan_map_chan{
+			bool committed;
+			u8 rx_nss;
+			struct nan_sched_chan chan;
+			struct nan_time_bitmap tbm;
+		} chans[NAN_MAX_CHAN_ENTRIES];
+
+		struct nan_time_bitmap ndc;
+		struct nan_time_bitmap immutable;
+	} maps[NAN_MAX_MAPS];
+};
+
 struct nan_config {
 	void *cb_ctx;
 	u8 nmi_addr[ETH_ALEN];
@@ -449,5 +484,9 @@ nan_peer_get_device_capabilities(struct nan_data *nan, const u8 *addr,
 int nan_peer_get_tk(struct nan_data *nan, const u8 *addr,
 		    const u8 *peer_ndi, const u8 *local_ndi,
 		    u8 *tk, size_t *tk_len, enum nan_cipher_suite_id *csid);
+int nan_peer_get_schedule_info(struct nan_data *nan, const u8 *addr,
+			       struct nan_peer_schedule *sched);
+int nan_peer_dump_sched_to_buf(struct nan_peer_schedule *sched,
+			       char *buf, size_t buflen);
 
 #endif /* NAN_H */
