@@ -1024,13 +1024,14 @@ done:
  * @nan: NAN module context from nan_init()
  * @sched: List of availability entries representing the schedule entries
  * @map_id: On return holds the map_id covered by the schedule entries
+ * @reason: In case of failure contains the reason
  * Returns: A bitfield representing the schedule on success; otherwise NULL
  *
  * Note: The function only supports converting a schedule where all map IDs are
  * identical. There is no support for a schedule that uses different maps.
  */
 struct bitfield * nan_sched_to_bf(struct nan_data *nan, struct dl_list *sched,
-				  u8 *map_id)
+				  u8 *map_id, enum nan_reason *reason)
 {
 	struct bitfield *sched_bf = NULL;
 	struct nan_avail_entry *cur;
@@ -1046,6 +1047,7 @@ struct bitfield * nan_sched_to_bf(struct nan_data *nan, struct dl_list *sched,
 		} else if (cur->map_id != *map_id) {
 			wpa_printf(MSG_DEBUG,
 				   "NAN: No support for multiple maps");
+			*reason = NAN_REASON_RESOURCE_LIMITATION;
 			goto fail;
 		}
 
@@ -1053,6 +1055,7 @@ struct bitfield * nan_sched_to_bf(struct nan_data *nan, struct dl_list *sched,
 		if (!tmp) {
 			wpa_printf(MSG_DEBUG,
 				   "NAN: Failed to convert sched to bf");
+			*reason = NAN_REASON_UNSPECIFIED_REASON;
 			goto fail;
 		}
 
@@ -1068,6 +1071,7 @@ struct bitfield * nan_sched_to_bf(struct nan_data *nan, struct dl_list *sched,
 			if (res) {
 				wpa_printf(MSG_DEBUG,
 					   "NAN: Failed to union sched bf");
+				*reason = NAN_REASON_UNSPECIFIED_REASON;
 				goto fail;
 			}
 		}
@@ -1206,6 +1210,7 @@ bool nan_sched_covered_by_avail_entries(struct nan_data *nan,
 	struct bitfield *sched_bf, *avail_bf;
 	u8 map_id;
 	bool ret = false;
+	enum nan_reason reason;
 
 	if (!sched || !sched_len)
 		return true;
@@ -1214,7 +1219,10 @@ bool nan_sched_covered_by_avail_entries(struct nan_data *nan,
 	ret = nan_sched_entries_to_avail_entries(nan, &sched_entries,
 						 sched, sched_len);
 
-	sched_bf = nan_sched_to_bf(nan, &sched_entries, &map_id);
+	sched_bf = nan_sched_to_bf(nan, &sched_entries, &map_id, &reason);
+	if (!sched_bf)
+		return false;
+
 	nan_flush_avail_entries(&sched_entries);
 
 	avail_bf = nan_sched_bf_from_avail_and_chan(nan, avail_entries,

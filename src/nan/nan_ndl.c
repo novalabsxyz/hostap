@@ -192,35 +192,36 @@ static struct nan_ndl * nan_ndl_alloc(struct nan_data *nan)
 }
 
 
-static int nan_ndl_validate_peer_avail(struct nan_data *nan,
-				       struct nan_peer *peer)
+static bool nan_ndl_validate_peer_avail(struct nan_data *nan,
+					struct nan_peer *peer)
 {
 	struct nan_ndl *ndl = peer->ndl;
-	int ret;
+	bool ret;
 
 	/* First, validate if immutable is covered by the availability map */
 	ret = nan_sched_covered_by_avail_entries(nan, &peer->info.avail_entries,
 						 ndl->immut_sched,
 						 ndl->immut_sched_len);
-	if (ret <= 0) {
+	if (!ret) {
 		wpa_printf(MSG_DEBUG,
 			   "NAN: Peer avail: Immutable is not covered by avail");
-		return -1;
+		return ret;
 	}
 
 	/* Now validate NDC schedule is covered by the availability map */
 	ret = nan_sched_covered_by_avail_entries(nan, &peer->info.avail_entries,
 						 ndl->ndc_sched,
 						 ndl->ndc_sched_len);
-	if (ret <= 0) {
+	if (!ret) {
 		wpa_printf(MSG_DEBUG,
 			   "NAN: Peer avail: NDC is not covered by avail");
-		return -1;
+		return ret;
 	}
 
 	wpa_printf(MSG_DEBUG,
 		   "NAN: NDL: Peer NDC and immutable are covered by avail");
-	return 0;
+
+	return ret;
 }
 
 
@@ -348,6 +349,7 @@ nan_ndl_match_sched_vs_common(struct nan_data *nan,
 	u8 map_id;
 	enum nan_ndl_ver verdict;
 	int ret;
+	enum nan_reason reason;
 
 	/* No constraints */
 	if (!sched || !sched_len)
@@ -360,7 +362,7 @@ nan_ndl_match_sched_vs_common(struct nan_data *nan,
 		return NAN_NDL_VER_SCHED_NONE;
 
 	/* Convert the schedule availability entries to map ID and bitfield */
-	sched_bf = nan_sched_to_bf(nan, &sched_entries, &map_id);
+	sched_bf = nan_sched_to_bf(nan, &sched_entries, &map_id, &reason);
 	nan_flush_avail_entries(&sched_entries);
 
 	/*

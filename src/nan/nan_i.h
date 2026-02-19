@@ -449,7 +449,7 @@ int nan_sched_entries_to_avail_entries(struct nan_data *nan,
 struct bitfield * nan_tbm_to_bf(struct nan_data *nan,
 				struct nan_time_bitmap *tbm);
 struct bitfield * nan_sched_to_bf(struct nan_data *nan, struct dl_list *sched,
-				  u8 *map_id);
+				  u8 *map_id, enum nan_reason *reason);
 bool nan_sched_covered_by_avail_entry(struct nan_data *nan,
 				      struct nan_avail_entry *avail,
 				      struct bitfield *sched_bf, u8 map_id);
