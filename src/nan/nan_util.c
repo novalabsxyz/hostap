@@ -8,6 +8,7 @@
 
 #include "includes.h"
 #include "common.h"
+#include "utils/bitfield.h"
 #include "common/wpa_common.h"
 #include "common/ieee802_11_common.h"
 #include "nan_i.h"
@@ -923,4 +924,207 @@ int nan_sched_entries_to_avail_entries(struct nan_data *nan,
 fail:
 	nan_flush_avail_entries(avail_entries);
 	return -1;
+}
+
+
+/**
+ * nan_tbm_to_bf - Convert a time bitmap to bitfield
+ * @nan: NAN module context from nan_init()
+ * @tbm: Time bitmap
+ * Returns: The converted bitfield on success; otherwise, NULL
+ *
+ * The function takes a time bitmap and converts it to a bitfield that
+ * represents a time bitmap with 16 TUs slots that covers a period of 8192 TUs.
+ * The conversion takes into account the duration, period, and offset fields of
+ * the time bitmap.
+ */
+struct bitfield * nan_tbm_to_bf(struct nan_data *nan,
+				struct nan_time_bitmap *tbm)
+{
+	struct bitfield *bf, *base;
+	u32 slot_duration, period, len;
+	u32 dur_factor, i, j, iter, max_iter;
+
+	wpa_printf(MSG_DEBUG,
+		   "NAN: Convert time bitmap: len=%u, dur=%u, period=%u, offset=%u",
+		   tbm->len, tbm->duration, tbm->period, tbm->offset);
+
+	/* Calculate the length and make sure it is less than the period */
+	dur_factor = 1 << tbm->duration;
+	slot_duration = 16 * dur_factor;
+
+	if (tbm->period == 0)
+		period = tbm->len * 8 * slot_duration;
+	else
+		period = 128 * (1 << (tbm->period - 1));
+
+	len = tbm->len;
+	if (tbm->len * 8 * slot_duration > period) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: Time bitmap length is bigger than duration. Chop it");
+		len = period / slot_duration / 8;
+	}
+
+	/* The 'base' bitfield holds the original bitmap */
+	base = bitfield_alloc_data(tbm->bitmap, tbm->len);
+	if (!base) {
+		wpa_printf(MSG_DEBUG, "NAN: Failed to allocate base bitmap");
+		return NULL;
+	}
+
+	if (!len) {
+		wpa_printf(MSG_DEBUG, "NAN: Empty time bitmap");
+		return base;
+	}
+
+	/* Allocate a time bitmap to cover a 8192 TUs period */
+	bf = bitfield_alloc(NAN_MAX_TIME_BITMAP_SLOTS);
+	if (!bf) {
+		bitfield_free(base);
+		return NULL;
+	}
+
+	/*
+	 * Convert the original map to a map of 16 TU slots taking into account
+	 * the time bitmap offset and the period. Note that during availability
+	 * attribute parsing, it was verified that offset is smaller than the
+	 * period.
+	 */
+	max_iter = NAN_MAX_PERIOD_TUS / period;
+	for (iter = 0; iter < max_iter; iter++) {
+		u32 start_slot = tbm->offset + iter * (period / 16);
+
+		for (i = 0;  i < len * 8; i++) {
+			bool slot_set = bitfield_is_set(base, i);
+
+			for (j = 0; j < dur_factor; j++) {
+				u32 target_slot =
+					start_slot + (i * dur_factor + j);
+
+				if (target_slot >= NAN_MAX_TIME_BITMAP_SLOTS)
+					goto done;
+
+				if (slot_set)
+					bitfield_set(bf, target_slot);
+			}
+		}
+	}
+
+done:
+	bitfield_free(base);
+
+	wpa_printf(MSG_DEBUG, "NAN: Done converting bitmap");
+
+	return bf;
+}
+
+
+/**
+ * nan_sched_to_bf - Convert schedule to bitfield
+ * @nan: NAN module context from nan_init()
+ * @sched: List of availability entries representing the schedule entries
+ * @map_id: On return holds the map_id covered by the schedule entries
+ * Returns: A bitfield representing the schedule on success; otherwise NULL
+ *
+ * Note: The function only supports converting a schedule where all map IDs are
+ * identical. There is no support for a schedule that uses different maps.
+ */
+struct bitfield * nan_sched_to_bf(struct nan_data *nan, struct dl_list *sched,
+				  u8 *map_id)
+{
+	struct bitfield *sched_bf = NULL;
+	struct nan_avail_entry *cur;
+
+	*map_id = NAN_INVALID_MAP_ID;
+
+	/* Convert all schedule availability entries to bf */
+	dl_list_for_each(cur, sched, struct nan_avail_entry, list) {
+		struct bitfield *tmp;
+
+		if (*map_id == NAN_INVALID_MAP_ID) {
+			*map_id = cur->map_id;
+		} else if (cur->map_id != *map_id) {
+			wpa_printf(MSG_DEBUG,
+				   "NAN: No support for multiple maps");
+			goto fail;
+		}
+
+		tmp = nan_tbm_to_bf(nan, &cur->tbm);
+		if (!tmp) {
+			wpa_printf(MSG_DEBUG,
+				   "NAN: Failed to convert sched to bf");
+			goto fail;
+		}
+
+		bitfield_dump(tmp, "NAN: Schedule entry bitmap");
+
+		if (!sched_bf) {
+			sched_bf = tmp;
+		} else {
+			int res;
+
+			res = bitfield_union_in_place(sched_bf, tmp);
+			bitfield_free(tmp);
+			if (res) {
+				wpa_printf(MSG_DEBUG,
+					   "NAN: Failed to union sched bf");
+				goto fail;
+			}
+		}
+	}
+
+	return sched_bf;
+
+fail:
+	bitfield_free(sched_bf);
+	*map_id = NAN_INVALID_MAP_ID;
+	return NULL;
+}
+
+
+/**
+ * nan_sched_covered_by_avail_entry - Check if schedule is covered by the
+ * availability entry
+ *
+ * @nan: NAN module context from nan_init()
+ * @avail: Availability entry
+ * @sched_bf: A bitfield representing the schedule
+ * @map_id: Map ID corresponding to the schedule
+ * Returns true of schedule is covered by the entry; false otherwise
+ */
+bool nan_sched_covered_by_avail_entry(struct nan_data *nan,
+				      struct nan_avail_entry *avail,
+				      struct bitfield *sched_bf, u8 map_id)
+{
+	struct bitfield *avail_bf = NULL;
+	int ret;
+
+	/* No schedule entries, avail_entry is good.. */
+	if (!sched_bf)
+		return true;
+
+	wpa_printf(MSG_DEBUG,
+		   "NAN: Check if schedule covered by availability entry");
+
+	/* Schedule can only be covered by committed/conditional */
+	if (avail->type != NAN_AVAIL_ENTRY_CTRL_TYPE_COMMITTED &&
+	    avail->type != NAN_AVAIL_ENTRY_CTRL_TYPE_COND)
+		return false;
+
+	if (avail->map_id != map_id)
+		return false;
+
+	/* Convert the availability entry to bf */
+	avail_bf = nan_tbm_to_bf(nan, &avail->tbm);
+	if (!avail_bf)
+		return false;
+
+	bitfield_dump(avail_bf, "NAN: Availability entry bitmap");
+
+	ret = bitfield_is_subset(avail_bf, sched_bf);
+	wpa_printf(MSG_DEBUG, "NAN: Is schedule subset of entry=%d", ret);
+
+	bitfield_free(avail_bf);
+
+	return ret == 1;
 }

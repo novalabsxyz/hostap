@@ -73,7 +73,9 @@ struct nan_ndp_id {
  * The maximal period of a NAN schedule is 8192 TUs. With time slots of 16 TUs,
  * need 64 octets to represent a complete schedule bitmap.
  */
-#define NAN_TIME_BITMAP_MAX_LEN 64
+#define NAN_MAX_PERIOD_TUS        8192
+#define NAN_MAX_TIME_BITMAP_SLOTS (NAN_MAX_PERIOD_TUS / 16)
+#define NAN_TIME_BITMAP_MAX_LEN   (NAN_MAX_TIME_BITMAP_SLOTS / 8)
 
 /**
  * struct nan_time_bitmap - NAN time bitmap
