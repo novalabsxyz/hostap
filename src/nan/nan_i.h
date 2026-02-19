@@ -575,5 +575,7 @@ int nan_crypto_key_mic(const u8 *buf, size_t len, const u8 *kck,
 void nan_sec_reset(struct nan_data *nan, struct nan_ndp_sec *ndp_sec);
 int nan_sec_rx(struct nan_data *nan, struct nan_peer *peer,
 	       struct nan_msg *msg);
+int nan_add_csia(struct wpabuf *buf, u8 capab, size_t cs_list_len,
+		 const struct nan_cipher_suite *cs_list);
 
 #endif /* NAN_I_H */

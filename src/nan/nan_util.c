@@ -333,6 +333,45 @@ void nan_add_dev_capa_attr(struct nan_data *nan, struct wpabuf *buf)
 }
 
 
+/*
+ * nan_add_csia - Add Cipher Suite Information Attribute (CSIA) to a buffer
+ * @buf: Buffer to add the attribute to
+ * @capab: Capabilities field (1 octet)
+ * @cs_list_len: Number of cipher suites in the list
+ * @cs_list: Array of cipher suite structures
+ *
+ * This function constructs and appends a NAN Cipher Suite Information Attribute
+ * to the provided buffer.
+ *
+ * Returns: 0 on success, -1 on failure (insufficient buffer space)
+ */
+int nan_add_csia(struct wpabuf *buf, u8 capab, size_t cs_list_len,
+		 const struct nan_cipher_suite *cs_list)
+{
+	size_t i;
+	/* Capabilities (1 octet) + Cipher Suite List */
+	size_t attr_len = sizeof(capab) + cs_list_len * sizeof(*cs_list);
+
+	if (wpabuf_tailroom(buf) <
+	    (size_t) (NAN_ATTR_HDR_LEN + attr_len)) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: Not enough space to add CSIA attribute");
+		return -1;
+	}
+
+	wpabuf_put_u8(buf, NAN_ATTR_CSIA);
+	wpabuf_put_le16(buf, attr_len);
+	wpabuf_put_u8(buf, capab);
+
+	for (i = 0; i < cs_list_len; i++) {
+		wpabuf_put_u8(buf, cs_list[i].csid);
+		wpabuf_put_u8(buf, cs_list[i].instance_id);
+	}
+
+	return 0;
+}
+
+
 /**
  * nan_chan_to_chan_idx_map - Convert an op_class and chan to channel bitmap
  * @nan: NAN module context from nan_init()
