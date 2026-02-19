@@ -924,3 +924,69 @@ int nan_sec_add_attrs(struct nan_data *nan, struct nan_peer *peer,
 
 	return 0;
 }
+
+
+/**
+ * nan_sec_init_resp - Initialize security context for responder
+ * @nan: NAN module context from nan_init()
+ * @peer: Peer with whom the NDP is being established
+ * Returns: 0 on success, negative on failure
+ *
+ * The function initializes the security context for the NDP security
+ * exchange for the responder. Assumes that the following re already set:
+ * - Initiator CSID
+ * - Responder CSID
+ * - PMK
+ * - NDP publish ID
+ * - Initiator address
+ * - Responder address
+ */
+int nan_sec_init_resp(struct nan_data *nan, struct nan_peer *peer)
+{
+	struct nan_ndp_sec *ndp_sec = &peer->ndp_setup.sec;
+	struct nan_ndp *ndp = peer->ndp_setup.ndp;
+	int ret;
+
+	if (ndp_sec->i_csid != ndp_sec->r_csid)
+		return -1;
+
+	/* Initialize the responder's security state */
+	os_get_random(ndp_sec->r_nonce, sizeof(ndp_sec->r_nonce));
+	ndp_sec->r_capab = 0;
+	ndp_sec->r_instance_id = peer->ndp_setup.publish_inst_id;
+
+	if (ndp_sec->i_instance_id != ndp_sec->r_instance_id) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: SEC: Service instance IDs are different (m2)");
+		return -1;
+	}
+
+	/* Compute the PMKID */
+	ret = nan_crypto_calc_pmkid(ndp_sec->pmk, peer->nmi_addr,
+				    nan->cfg->nmi_addr,
+				    peer->ndp_setup.service_id,
+				    ndp_sec->r_csid, ndp_sec->r_pmkid);
+	if (ret) {
+		wpa_printf(MSG_DEBUG, "NAN: SEC: Failed to compute PMKID (m2)");
+		return -1;
+	}
+
+	/* Sanity check */
+	if (os_memcmp(ndp_sec->i_pmkid, ndp_sec->r_pmkid, PMKID_LEN) != 0) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: SEC: m2: Local PMKID differs from remote");
+		return -1;
+	}
+
+	/* PTK should be derived using the NDI address */
+	ret = nan_crypto_pmk_to_ptk(ndp_sec->pmk,
+				    ndp->init_ndi, ndp->resp_ndi,
+				    ndp_sec->i_nonce, ndp_sec->r_nonce,
+				    &ndp_sec->ptk, ndp_sec->i_csid);
+
+	wpa_printf(MSG_DEBUG,
+		   "NAN: SEC: Derived PTK for responder (m2). ret=%d",
+		   ret);
+
+	return ret;
+}

@@ -579,5 +579,6 @@ int nan_add_csia(struct wpabuf *buf, u8 capab, size_t cs_list_len,
 		 const struct nan_cipher_suite *cs_list);
 int nan_sec_add_attrs(struct nan_data *nan, struct nan_peer *peer,
 		      enum nan_subtype subtype, struct wpabuf *buf);
+int nan_sec_init_resp(struct nan_data *nan, struct nan_peer *peer);
 
 #endif /* NAN_I_H */
