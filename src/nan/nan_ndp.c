@@ -134,6 +134,7 @@ int nan_ndp_setup_req(struct nan_data *nan, struct nan_peer *peer,
 		return ret;
 	}
 
+	nan_sec_reset(nan, &peer->ndp_setup.sec);
 	nan_ndp_set_state(nan, &peer->ndp_setup, NAN_NDP_STATE_START);
 	peer->ndp_setup.status = NAN_NDP_STATUS_CONTINUED;
 	return 0;
@@ -248,6 +249,7 @@ static int nan_ndp_attr_handle_req(struct nan_data *nan, struct nan_peer *peer,
 	if (!ndp_setup->ndp)
 		return -1;
 
+	nan_sec_reset(nan, &peer->ndp_setup.sec);
 	nan_ndp_set_state(nan, ndp_setup, NAN_NDP_STATE_REQ_RECV);
 
 	ndp_setup->status = NAN_NDP_STATUS_CONTINUED;
@@ -255,6 +257,8 @@ static int nan_ndp_attr_handle_req(struct nan_data *nan, struct nan_peer *peer,
 		!!(ndp_attr->ndp_ctrl & NAN_NDP_CTRL_CONFIRM_REQUIRED);
 	ndp_setup->dialog_token = ndp_attr->dialog_token;
 	ndp_setup->publish_inst_id = publish_inst_id;
+	ndp_setup->sec.present =
+		!!(ndp_attr->ndp_ctrl & NAN_NDP_CTRL_SECURITY_PRESENT);
 
 	/* Handle service specific information */
 	ndp_len -= exp_len;
@@ -264,6 +268,7 @@ static int nan_ndp_attr_handle_req(struct nan_data *nan, struct nan_peer *peer,
 
 		wpa_printf(MSG_DEBUG,
 			   "NAN: NDP: req: Handle NDP service specific information");
+
 		ret = nan_ndp_ssi(nan, &peer->ndp_setup,
 				  (const u8 *) ndp_attr->optional + 1,
 				  ndp_len);
@@ -282,6 +287,7 @@ static int nan_ndp_attr_handle_res(struct nan_data *nan, struct nan_peer *peer,
 {
 	struct nan_ndp_setup *ndp_setup = &peer->ndp_setup;
 	u16 opt_len;
+	bool sec_present;
 
 	if (!ndp_setup->ndp) {
 		wpa_printf(MSG_DEBUG,
@@ -354,10 +360,17 @@ static int nan_ndp_attr_handle_res(struct nan_data *nan, struct nan_peer *peer,
 		goto store_ssi;
 	}
 
-	if (((ndp_attr->ndp_ctrl & NAN_NDP_CTRL_SECURITY_PRESENT) ||
-	     ndp_setup->conf_req) && status != NAN_NDP_STATUS_CONTINUED) {
+	sec_present = !!(ndp_attr->ndp_ctrl & NAN_NDP_CTRL_SECURITY_PRESENT);
+	if (ndp_setup->sec.present != sec_present) {
 		wpa_printf(MSG_DEBUG,
-			   "NAN: NDP: Security present and status != continue");
+			   "NAN: NDP: Security present mismatch");
+		return -1;
+	}
+
+	if ((sec_present || ndp_setup->conf_req) &&
+	    status != NAN_NDP_STATUS_CONTINUED) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: NDP: Security present or confirm required and status != continued");
 		return -1;
 	}
 
@@ -404,6 +417,7 @@ static int nan_ndp_attr_handle_confirm(struct nan_data *nan,
 				       u8 status)
 {
 	struct nan_ndp_setup *ndp_setup = &peer->ndp_setup;
+	bool sec_present;
 
 	if (!ndp_setup->ndp) {
 		wpa_printf(MSG_DEBUG,
@@ -438,10 +452,16 @@ static int nan_ndp_attr_handle_confirm(struct nan_data *nan,
 		return -1;
 	}
 
-	if ((ndp_attr->ndp_ctrl & NAN_NDP_CTRL_SECURITY_PRESENT) &&
-	    status != NAN_NDP_STATUS_CONTINUED) {
+	sec_present = !!(ndp_attr->ndp_ctrl & NAN_NDP_CTRL_SECURITY_PRESENT);
+	if (ndp_setup->sec.present != sec_present) {
 		wpa_printf(MSG_DEBUG,
-			   "NAN: NDP: confirm: status != continue with security");
+			   "NAN: NDP: confirm: Security present mismatch");
+		return -1;
+	}
+
+	if (sec_present && status != NAN_NDP_STATUS_CONTINUED) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: NDP: confirm: status != continued with security");
 		return -1;
 	}
 
@@ -454,9 +474,9 @@ static int nan_ndp_attr_handle_confirm(struct nan_data *nan,
 
 	ndp_setup->status = status;
 
-	/* TODO: handle security */
-	if (status == NAN_NDP_STATUS_ACCEPTED)
-		nan_ndp_set_state(nan, &peer->ndp_setup, NAN_NDP_STATE_DONE);
+	if (sec_present)
+		nan_ndp_set_state(nan, &peer->ndp_setup,
+				  NAN_NDP_STATE_CON_RECV);
 	else
 		nan_ndp_set_state(nan, &peer->ndp_setup, NAN_NDP_STATE_DONE);
 
@@ -476,6 +496,63 @@ static struct nan_ndp * nan_ndp_find_ndp(struct nan_peer *peer,
 	}
 
 	return NULL;
+}
+
+
+static int nan_ndp_attr_sec_install(struct nan_data *nan, struct nan_peer *peer,
+				    const struct ieee80211_ndp *ndp_attr,
+				    u8 status)
+{
+	struct nan_ndp_setup *ndp_setup = &peer->ndp_setup;
+	bool sec_present;
+
+	if (!ndp_setup->ndp) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: NDP: sec install while no NDP WIP with peer");
+		return -1;
+	}
+
+	if (ndp_setup->state != NAN_NDP_STATE_CON_SENT) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: NDP: sec install while not expecting one");
+
+		if (ndp_setup->state != NAN_NDP_STATE_RES_RECV ||
+		    ndp_setup->status != NAN_NDP_STATUS_CONTINUED)
+			return -1;
+
+		/* Due to races with the driver, it is possible that the
+		 * install is received before an ACK is indicated. Allow the
+		 * processing of the attribute, and if all parameters are OK,
+		 * fast forward the state machine below.
+		 */
+		wpa_printf(MSG_DEBUG,
+			   "NAN: NDP: sec install received before Tx status.");
+	}
+
+	if (ndp_setup->ndp->ndp_id != ndp_attr->ndp_id ||
+	    ndp_setup->dialog_token != ndp_attr->dialog_token ||
+	    !ether_addr_equal(ndp_setup->ndp->init_ndi,
+			      ndp_attr->initiator_ndi)) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: NDP: sec install: Invalid NDP parameters");
+		return -1;
+	}
+
+	sec_present = !!(ndp_attr->ndp_ctrl & NAN_NDP_CTRL_SECURITY_PRESENT);
+	if (ndp_setup->sec.present != sec_present) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: NDP: sec install: Security present mismatch");
+		return -1;
+	}
+
+	if (status != NAN_NDP_STATUS_ACCEPTED) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: NDP: sec install: status != ACCEPTED");
+		return -1;
+	}
+
+	nan_ndp_set_state(nan, &peer->ndp_setup, NAN_NDP_STATE_DONE);
+	return 0;
 }
 
 
@@ -565,6 +642,7 @@ int nan_ndp_handle_ndp_attr(struct nan_data *nan, struct nan_peer *peer,
 {
 	struct ieee80211_ndp *ndp_attr;
 	u8 type, status;
+	int ret;
 
 	if (!msg || !peer || !msg->attrs.ndp)
 		return -1;
@@ -590,22 +668,42 @@ int nan_ndp_handle_ndp_attr(struct nan_data *nan, struct nan_peer *peer,
 
 	switch (type) {
 	case NAN_NDP_TYPE_REQUEST:
-		return nan_ndp_attr_handle_req(nan, peer, ndp_attr,
-					       msg->attrs.ndp_len, status);
+		ret = nan_ndp_attr_handle_req(nan, peer, ndp_attr,
+					      msg->attrs.ndp_len,
+					      status);
+		break;
 	case NAN_NDP_TYPE_RESPONSE:
-		return nan_ndp_attr_handle_res(nan, peer, ndp_attr,
-					       msg->attrs.ndp_len,
-					       status);
+		ret = nan_ndp_attr_handle_res(nan, peer, ndp_attr,
+					      msg->attrs.ndp_len,
+					      status);
+		break;
 	case NAN_NDP_TYPE_CONFIRM:
-		return nan_ndp_attr_handle_confirm(nan, peer, ndp_attr, status);
+		ret = nan_ndp_attr_handle_confirm(nan, peer, ndp_attr, status);
+		break;
 	case NAN_NDP_TYPE_SECURITY_INSTALL:
-		/* TODO: Handle security */
-		return -1;
+		ret = nan_ndp_attr_sec_install(nan, peer, ndp_attr, status);
+		break;
 	case NAN_NDP_TYPE_TERMINATE:
 		return nan_ndp_attr_handle_term(nan, peer, ndp_attr, status);
 	default:
 		return -1;
 	}
+
+	/* Error or no security.. We are done. */
+	if (ret || !peer->ndp_setup.sec.present ||
+	    peer->ndp_setup.status == NAN_NDP_STATUS_REJECTED)
+		return ret;
+
+	ret = nan_sec_rx(nan, peer, msg);
+	if (ret)
+		return ret;
+
+	/* Processing of confirm is successful, so to the overall status is
+	 * success. */
+	if (type == NAN_NDP_TYPE_CONFIRM)
+		peer->ndp_setup.status = NAN_NDP_STATUS_ACCEPTED;
+
+	return 0;
 }
 
 
@@ -664,6 +762,9 @@ int nan_ndp_add_ndp_attr(struct nan_data *nan, struct nan_peer *peer,
 	default:
 		return 0;
 	}
+
+	if (ndp_setup->sec.present)
+		ndp_ctrl |= NAN_NDP_CTRL_SECURITY_PRESENT;
 
 	wpabuf_put_u8(buf, NAN_ATTR_NDP);
 	len_ptr = wpabuf_put(buf, 2);
