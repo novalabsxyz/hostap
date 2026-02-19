@@ -1286,8 +1286,11 @@ static int nan_action_rx_ndp(struct nan_data *nan, struct nan_peer *peer,
 	int ret;
 
 	ret = nan_ndp_handle_ndp_attr(nan, peer, msg);
-	if (ret)
+	if (ret) {
+		if (ret > 0)
+			ret = 0;
 		return ret;
+	}
 
 	/*
 	 * NDP request: Also process the NDL/NDC/QoS attributes and store the
@@ -1640,4 +1643,18 @@ int nan_handle_ndp_setup(struct nan_data *nan, struct nan_ndp_params *params)
 
 	nan_set_peer_timeout(nan, peer, timeout, 0);
 	return ret;
+}
+
+
+void nan_ndp_terminated(struct nan_data *nan, struct nan_peer *peer,
+			struct nan_ndp_id *ndp_id, const u8 *local_ndi,
+			const u8 *peer_ndi, enum nan_reason reason)
+{
+	if (nan->cfg->ndp_disconnected)
+		nan->cfg->ndp_disconnected(nan->cfg->cb_ctx, ndp_id, local_ndi,
+					   peer_ndi, reason);
+
+	/* Need to also remove the NDL if it is not needed */
+	if (dl_list_empty(&peer->ndps) && !peer->ndp_setup.ndp)
+		nan_ndl_reset(nan, peer);
 }

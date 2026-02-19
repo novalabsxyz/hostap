@@ -468,32 +468,79 @@ static int nan_ndp_attr_handle_term(struct nan_data *nan, struct nan_peer *peer,
 				    struct ieee80211_ndp *ndp_attr, u8 status)
 {
 	struct nan_ndp_setup *ndp_setup = &peer->ndp_setup;
+	struct nan_ndp_id ndp_id;
+	const u8 *local_ndi, *peer_ndi;
+	struct nan_ndp *pndp;
+	bool found;
+
+	wpa_printf(MSG_DEBUG,
+		   "NAN: NDP: Termination peer=" MACSTR " ndp_id=%u, init_ndi="
+		   MACSTR,
+		   MAC2STR(peer->nmi_addr), ndp_attr->ndp_id,
+		   MAC2STR(ndp_attr->initiator_ndi));
 
 	/*
-	 * This should not really happen, but just in case,
-	 * terminate the establishment.
+	 * This should not really happen, but just in case, terminate the
+	 * establishment. Since the NDP establishment is not yet done, the NDP
+	 * is not added to the list of NDPs, so just reject the establishment.
 	 */
-	if (ndp_setup->ndp) {
-		if (ndp_setup->ndp->ndp_id == ndp_attr->ndp_id &&
-		    ether_addr_equal(ndp_setup->ndp->init_ndi,
-				     ndp_attr->initiator_ndi)) {
-			wpa_printf(MSG_DEBUG,
-				   "NAN: NDP: term: WIP with peer. Terminate");
+	if (ndp_setup->ndp && ndp_setup->ndp->ndp_id == ndp_attr->ndp_id &&
+	    ether_addr_equal(ndp_setup->ndp->init_ndi,
+			     ndp_attr->initiator_ndi)) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: NDP: Termination while NDP is in progress");
 
-			nan_ndp_set_state(nan, &peer->ndp_setup,
-					  NAN_NDP_STATE_DONE);
-			ndp_setup->status = NAN_NDP_STATUS_REJECTED;
-			ndp_setup->reason = NAN_REASON_UNSPECIFIED_REASON;
-		} else {
-			wpa_printf(MSG_DEBUG,
-				   "NAN: NDP: term: different NDP WIP with peer. Ignore");
-		}
+		nan_ndp_set_state(nan, &peer->ndp_setup, NAN_NDP_STATE_DONE);
+		ndp_setup->status = NAN_NDP_STATUS_REJECTED;
+		ndp_setup->reason = NAN_REASON_UNSPECIFIED_REASON;
 		return 0;
 	}
 
-	/* TODO: handle already established NDPs */
-	wpa_printf(MSG_DEBUG, "NAN: NDP: Terminate established NDP");
-	return 0;
+	/* Find the NDP in the list of active NDPs */
+	found = false;
+	dl_list_for_each(pndp, &peer->ndps, struct nan_ndp, list) {
+		if (pndp->ndp_id == ndp_attr->ndp_id &&
+		    ether_addr_equal(pndp->init_ndi, ndp_attr->initiator_ndi)) {
+			found = true;
+			break;
+		}
+	}
+
+	if (!found) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: NDP: Termination but NDP does not exist");
+		return 1;
+	}
+
+	wpa_printf(MSG_DEBUG, "NAN: NDP: Terminating");
+
+	os_memcpy(ndp_id.peer_nmi, peer->nmi_addr, ETH_ALEN);
+	os_memcpy(ndp_id.init_ndi, pndp->init_ndi, ETH_ALEN);
+	ndp_id.id = pndp->ndp_id;
+
+	if (pndp->initiator) {
+		local_ndi = pndp->init_ndi;
+		peer_ndi = pndp->resp_ndi;
+	} else {
+		local_ndi = pndp->resp_ndi;
+		peer_ndi = pndp->init_ndi;
+	}
+
+	/*
+	 * Remove the NDP from the list of active NDPs before calling
+	 * nan_ndp_terminated() as the function checks the list of NDPs to
+	 * determine if the NDL should be reset as well. Free the NDP only after
+	 * the call as the NDI addresses are still referenced.
+	 */
+	dl_list_del(&pndp->list);
+
+	nan_ndp_terminated(nan, peer, &ndp_id, local_ndi, peer_ndi,
+			   ndp_attr->reason_code);
+
+	os_free(pndp);
+
+	/* Indicate that no further processing is needed */
+	return 1;
 }
 
 
@@ -502,7 +549,9 @@ static int nan_ndp_attr_handle_term(struct nan_data *nan, struct nan_peer *peer,
  * @nan: NAN module context from nan_init()
  * @peer: The peer from which the original message was received
  * @msg: Parsed NAN Action frame
- * Returns: 0 on success, negative on failure
+ * Returns: 0 on success processing indicating that processing can continue; 1
+ * in case of successful processing but no further processing is needed;
+ * negative on failure.
  */
 int nan_ndp_handle_ndp_attr(struct nan_data *nan, struct nan_peer *peer,
 			    struct nan_msg *msg)

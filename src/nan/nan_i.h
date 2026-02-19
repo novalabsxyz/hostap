@@ -483,5 +483,8 @@ bool nan_sched_bf_covered_by_avail_entries_and_chan(
 struct bitfield * nan_avail_entries_to_bf(struct nan_data *nan,
 					  const struct dl_list *avail_entries,
 					  u8 op_class, u16 cbm, u16 pri_cbm);
+void nan_ndp_terminated(struct nan_data *nan, struct nan_peer *peer,
+			struct nan_ndp_id *ndp_id, const u8 *local_ndi,
+			const u8 *peer_ndi, enum nan_reason reason);
 
 #endif /* NAN_I_H */
