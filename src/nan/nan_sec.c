@@ -990,3 +990,143 @@ int nan_sec_init_resp(struct nan_data *nan, struct nan_peer *peer)
 
 	return ret;
 }
+
+
+/*
+ * nan_sec_pre_tx - Handle security aspects before sending a NDP NAF
+ * @nan: NAN module context from nan_init()
+ * @peer: Peer with whom the NDP is being established
+ * @buf: Buffer holding the NAF body (not including the IEEE 802.11 header)
+ * Returns: 0 on success, and a negative error value on failure.
+ *
+ * Note: The NAF content should not be altered after the function returns,
+ * as the function might have signed the frame body, i.e., updated the MIC
+ * field.
+ */
+int nan_sec_pre_tx(struct nan_data *nan, struct nan_peer *peer,
+		   struct wpabuf *buf)
+{
+	struct nan_ndp_sec *ndp_sec = &peer->ndp_setup.sec;
+	struct nan_attrs attrs;
+	struct nan_shared_key *shared_key_desc;
+	struct wpa_eapol_key *key;
+	u8 *data, *tmp, *mic_ptr;
+	size_t len;
+	u8 subtype;
+	int ret;
+
+	/* NDP establishment is not in progress */
+	if (!peer->ndp_setup.ndp ||
+	    peer->ndp_setup.status == NAN_NDP_STATUS_REJECTED)
+		return 0;
+
+	/* No security configuration */
+	if (!ndp_sec->valid)
+		return 0;
+
+	wpa_printf(MSG_DEBUG, "NAN: SEC:  NDP setup state=%u (pre Tx)",
+		   peer->ndp_setup.state);
+
+	data = wpabuf_mhead_u8(buf);
+	len = wpabuf_len(buf);
+
+	if (len < 7) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: SEC: Buffer is too short=%zu (pre Tx)", len);
+		return -1;
+	}
+
+	/* The subtype is the 7th octet. See nan_action_build_header() */
+	subtype = data[6];
+
+	wpa_printf(MSG_DEBUG, "NAN: SEC: subtype=0x%x (pre Tx)", subtype);
+
+	switch (subtype) {
+	case NAN_SUBTYPE_DATA_PATH_REQUEST:
+	case NAN_SUBTYPE_DATA_PATH_RESPONSE:
+	case NAN_SUBTYPE_DATA_PATH_CONFIRM:
+	case NAN_SUBTYPE_DATA_PATH_KEY_INSTALL:
+		break;
+	default:
+		return -1;
+	}
+
+	/*
+	 * First get a pointer to the shared key descriptor attribute and
+	 * validate it.
+	 */
+	ret = nan_parse_attrs(nan, data + 7, len - 7, &attrs);
+	if (ret)
+		return ret;
+
+	if (!attrs.shared_key_desc ||
+	    attrs.shared_key_desc_len <
+	    sizeof(*shared_key_desc) + (sizeof(*key) + 2 + NAN_KEY_MIC_LEN)) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: SEC: Invalid shared key descriptor attribute");
+		return -1;
+	}
+
+	shared_key_desc = (struct nan_shared_key *) attrs.shared_key_desc;
+	key = (struct wpa_eapol_key *) shared_key_desc->key;
+	mic_ptr = (u8 *) (key + 1);
+	nan_attrs_clear(nan, &attrs);
+
+	switch (subtype) {
+	case NAN_SUBTYPE_DATA_PATH_REQUEST:
+		if (peer->ndp_setup.state != NAN_NDP_STATE_START)
+			wpa_printf(MSG_DEBUG,
+				   "NAN: SEC: Request invalid state (pre Tx)");
+
+		/* Save the authentication token for m3. */
+		ret = nan_crypto_calc_auth_token(ndp_sec->i_csid, data, len,
+						 ndp_sec->auth_token);
+		break;
+	case NAN_SUBTYPE_DATA_PATH_RESPONSE:
+		if (peer->ndp_setup.state != NAN_NDP_STATE_REQ_RECV)
+			wpa_printf(MSG_DEBUG,
+				   "NAN: SEC: Pre Tx response invalid state");
+
+		/* Calculate MIC over the frame body. */
+		ret = nan_crypto_key_mic(data, len,
+					 ndp_sec->ptk.kck,
+					 ndp_sec->ptk.kck_len,
+					 ndp_sec->i_csid, mic_ptr);
+		break;
+	case NAN_SUBTYPE_DATA_PATH_CONFIRM:
+		if (peer->ndp_setup.state != NAN_NDP_STATE_RES_RECV)
+			wpa_printf(MSG_DEBUG,
+				   "NAN: SEC: Confirm invalid state (pre Tx)");
+
+		/*
+		 * Calculate MIC over the frame body concatenated with
+		 * authentication token.
+		 */
+		tmp = os_malloc(len + NAN_AUTH_TOKEN_LEN);
+		if (!tmp)
+			return -1;
+
+		os_memcpy(tmp, ndp_sec->auth_token, NAN_AUTH_TOKEN_LEN);
+		os_memcpy(tmp + NAN_AUTH_TOKEN_LEN, data, len);
+
+		ret = nan_crypto_key_mic(tmp, len + NAN_AUTH_TOKEN_LEN,
+					 ndp_sec->ptk.kck,
+					 ndp_sec->ptk.kck_len,
+					 ndp_sec->i_csid, mic_ptr);
+		os_free(tmp);
+		break;
+	case NAN_SUBTYPE_DATA_PATH_KEY_INSTALL:
+		if (peer->ndp_setup.state != NAN_NDP_STATE_CON_RECV)
+			wpa_printf(MSG_DEBUG,
+				   "NAN: SEC: Key install invalid state (pre Tx)");
+
+		/* Calculate MIC over the frame body */
+		ret = nan_crypto_key_mic(data, len,
+					 ndp_sec->ptk.kck,
+					 ndp_sec->ptk.kck_len,
+					 ndp_sec->i_csid, mic_ptr);
+		break;
+	}
+
+	return ret;
+}
