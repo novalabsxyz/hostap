@@ -1066,6 +1066,14 @@ struct bitfield * nan_sched_to_bf(struct nan_data *nan, struct dl_list *sched,
 		} else {
 			int res;
 
+			if (bitfield_intersects(sched_bf, tmp)) {
+				wpa_printf(MSG_DEBUG,
+					   "NAN: Invalid availability: TBMs intersect");
+				*reason = NAN_REASON_INVALID_AVAILABILITY;
+				bitfield_free(tmp);
+				goto fail;
+			}
+
 			res = bitfield_union_in_place(sched_bf, tmp);
 			bitfield_free(tmp);
 			if (res) {
