@@ -532,6 +532,261 @@ static struct nan_test_case pmk_mismatch = {
 };
 
 
+static struct nan_test_case two_ndps_no_security = {
+	.name = "Two NDPs: no security. Both accepted",
+	.pub_conf = {
+		.schedule_cb = nan_test_schedule_cb_all_ndc,
+		.get_chans_cb = nan_test_get_chans_default,
+		.n_ndps = 2,
+		.ndp_confs = {
+			{
+				.accept_request = 1,
+				.term_once_connected = 0,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+			},
+			{
+				.accept_request = 1,
+				.term_once_connected = 0,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+			},
+		},
+		.pot_avail = {
+			0x12, 0x0a, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00,
+			0xba, 0x02, 0x20, 0x02, 0x04
+		},
+		.pot_avail_len = 13,
+	},
+	.sub_conf = {
+		.schedule_cb = nan_test_schedule_cb_all_no_ndc,
+		.get_chans_cb = nan_test_get_chans_default,
+		.n_ndps = 2,
+		.ndp_confs = {
+			{
+				.accept_request = 1,
+				.term_once_connected = 0,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+			},
+			{
+				.accept_request = 1,
+				.term_once_connected = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+			},
+		},
+	}
+};
+
+
+static struct nan_test_case three_ndps_no_security_middle_one_rejected = {
+	.name = "Three NDPs: no security. Middle one rejected",
+	.pub_conf = {
+		.schedule_cb = nan_test_schedule_cb_all_ndc,
+		.get_chans_cb = nan_test_get_chans_default,
+		.n_ndps = 3,
+		.ndp_confs = {
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+			},
+			{
+				.accept_request = 0,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_DISCONNECTED,
+			},
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+			},
+		},
+		.pot_avail = {
+			0x12, 0x0a, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00,
+			0xba, 0x02, 0x20, 0x02, 0x04
+		},
+		.pot_avail_len = 13,
+	},
+	.sub_conf = {
+		.schedule_cb = nan_test_schedule_cb_all_no_ndc,
+		.get_chans_cb = nan_test_get_chans_default,
+		.n_ndps = 3,
+		.ndp_confs = {
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+			},
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_DISCONNECTED,
+			},
+			{
+				.accept_request = 1,
+				.term_once_connected = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+			},
+		},
+	}
+};
+
+
+static struct nan_test_case three_ndps_increasing_security = {
+	.name = "Three NDPs: increasing security levels",
+	.pub_conf = {
+		.schedule_cb = nan_test_schedule_cb_all_ndc,
+		.get_chans_cb = nan_test_get_chans_default,
+		.n_ndps = 3,
+		.ndp_confs = {
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+			},
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+				.csid = NAN_CS_SK_CCM_128,
+				.expected_csid = NAN_CS_SK_CCM_128,
+			},
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+				.csid = NAN_CS_SK_GCM_256,
+				.expected_csid = NAN_CS_SK_GCM_256,
+			},
+		},
+		.pot_avail = {
+			0x12, 0x0a, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00,
+			0xba, 0x02, 0x20, 0x02, 0x04
+		},
+		.pot_avail_len = 13,
+		.pmk = {
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+		},
+	},
+	.sub_conf = {
+		.schedule_cb = nan_test_schedule_cb_all_no_ndc,
+		.get_chans_cb = nan_test_get_chans_default,
+		.n_ndps = 3,
+		.ndp_confs = {
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+			},
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+				.csid = NAN_CS_SK_CCM_128,
+				.expected_csid = NAN_CS_SK_CCM_128,
+			},
+			{
+				.accept_request = 1,
+				.term_once_connected = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+				.csid = NAN_CS_SK_GCM_256,
+				.expected_csid = NAN_CS_SK_GCM_256,
+			},
+		},
+		.pmk = {
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+		},
+	}
+};
+
+
+static struct nan_test_case three_ndps_deacreasing_security = {
+	.name = "Three NDPs: decreasing security levels",
+	.pub_conf = {
+		.schedule_cb = nan_test_schedule_cb_all_ndc,
+		.get_chans_cb = nan_test_get_chans_default,
+		.n_ndps = 3,
+		.ndp_confs = {
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+				.csid = NAN_CS_SK_GCM_256,
+				.expected_csid = NAN_CS_SK_GCM_256,
+			},
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+				.csid = NAN_CS_SK_CCM_128,
+				.expected_csid = NAN_CS_SK_GCM_256,
+			},
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+				.expected_csid = NAN_CS_SK_GCM_256,
+			},
+		},
+		.pot_avail = {
+			0x12, 0x0a, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00,
+			0xba, 0x02, 0x20, 0x02, 0x04
+		},
+		.pot_avail_len = 13,
+		.pmk = {
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+		},
+	},
+	.sub_conf = {
+		.schedule_cb = nan_test_schedule_cb_all_no_ndc,
+		.get_chans_cb = nan_test_get_chans_default,
+		.n_ndps = 3,
+		.ndp_confs = {
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+				.csid = NAN_CS_SK_GCM_256,
+				.expected_csid = NAN_CS_SK_GCM_256,
+			},
+			{
+				.accept_request = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+				.csid = NAN_CS_SK_CCM_128,
+				.expected_csid = NAN_CS_SK_GCM_256,
+			},
+			{
+				.accept_request = 1,
+				.term_once_connected = 1,
+				.expected_result =
+					NAN_TEST_NDP_NOTIFY_CONNECTED,
+				.expected_csid = NAN_CS_SK_GCM_256,
+			},
+		},
+		.pmk = {
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+			0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+		},
+	}
+};
+
+
 static const struct nan_test_case *g_nan_test_cases[] = {
 	&three_way_ndp_two_way_ndl_chan_149,
 	&three_way_ndp_two_way_ndl_diff_period,
@@ -542,6 +797,10 @@ static const struct nan_test_case *g_nan_test_cases[] = {
 	&four_way_ndp_two_way_ndl_chan_149_ccm_128,
 	&four_way_ndp_two_way_ndl_chan_149_gcm_256,
 	&pmk_mismatch,
+	&two_ndps_no_security,
+	&three_ndps_no_security_middle_one_rejected,
+	&three_ndps_increasing_security,
+	&three_ndps_deacreasing_security,
 	NULL
 };
 
