@@ -378,10 +378,7 @@ static u16 nan_add_avail_entry(struct nan_data *nan,
 
 	len_ptr = wpabuf_put(buf, 2);
 
-	/*
-	 * TODO: Need to also add potential entries as otherwise the peer would
-	 * not be able to counter.
-	 */
+	/* Potential availability entries are handled separately */
 	if (type != NAN_AVAIL_ENTRY_CTRL_TYPE_COMMITTED &&
 	    type != NAN_AVAIL_ENTRY_CTRL_TYPE_COND) {
 		wpa_printf(MSG_DEBUG,
@@ -496,6 +493,147 @@ int nan_get_chan_bm(struct nan_data *nan, struct nan_sched_chan *chan,
 }
 
 
+static void nan_add_pot_avail_entry(struct nan_data *nan,
+				    struct nan_chan_entry *entries,
+				    unsigned int n_entries, u8 pref,
+				    struct wpabuf *buf)
+{
+	u16 ctrl;
+	u8 chan_ctrl;
+	size_t i;
+	u8 nss = BITS(nan->cfg->dev_capa.n_antennas, NAN_DEV_CAPA_RX_ANT_MASK,
+		      NAN_DEV_CAPA_RX_ANT_POS);
+
+	wpa_printf(MSG_DEBUG, "NAN: Adding potential entry: n_entries=%u",
+		   n_entries);
+
+	if (!n_entries)
+		return;
+
+	/* The number of channel entries can be too big for the buffer */
+	if (wpabuf_tailroom(buf) < 2 + 2 + 1 + n_entries * 4) {
+		n_entries = (wpabuf_tailroom(buf) - 5) / 4;
+
+		wpa_printf(MSG_DEBUG,
+			   "NAN: Not enough space to add potential entries, reduce to %u",
+			   n_entries);
+	}
+
+	/*
+	 * ctrl (2) + chan control (1) + n_entries * (nan_chan_entry without
+	 * the aux bitmap).
+	 */
+	wpabuf_put_le16(buf, 3 + n_entries * 4);
+
+	ctrl = NAN_AVAIL_ENTRY_CTRL_TYPE_POTENTIAL;
+	ctrl |= NAN_AVAIL_ENTRY_DEF_UTIL << NAN_AVAIL_ENTRY_CTRL_UTIL_POS;
+	ctrl |= nss << NAN_AVAIL_ENTRY_CTRL_RX_NSS_POS;
+	ctrl |= pref << NAN_AVAIL_ENTRY_CTRL_USAGE_PREF_POS;
+	wpabuf_put_le16(buf, ctrl);
+
+	/* Add all channel entries */
+	chan_ctrl = NAN_BAND_CHAN_CTRL_TYPE;
+	chan_ctrl |= n_entries << NAN_BAND_CHAN_CTRL_NUM_ENTRIES_POS;
+	wpabuf_put_u8(buf, chan_ctrl);
+
+	for (i = 0; i < n_entries; i++) {
+		struct nan_chan_entry *cur = &entries[i];
+
+		wpabuf_put_u8(buf, cur->op_class);
+		wpabuf_put_le16(buf, cur->chan_bitmap);
+		wpabuf_put_u8(buf, 0);
+	}
+}
+
+
+static void
+nan_build_pot_avail_entry_with_chans(struct nan_data *nan,
+				     const struct nan_channels *pot_chans,
+				     struct wpabuf *buf, u8 map_id)
+{
+	struct nan_chan_entry chan_entries[global_op_class_size];
+	size_t i, n_entries;
+
+	os_memset(chan_entries, 0, sizeof(chan_entries));
+	n_entries = 0;
+
+	wpa_printf(MSG_DEBUG, "NAN: Adding potential entries: n_chans=%u",
+		   pot_chans->n_chans);
+
+	for (i = 0; i < pot_chans->n_chans; i++) {
+		struct nan_channel_info *chan = &pot_chans->chans[i];
+		struct nan_chan_entry *cur;
+		u16 cbm = 0;
+		size_t j;
+		int ret;
+
+		if (i > 0 && pot_chans->chans[i - 1].pref != chan->pref) {
+			nan_add_pot_avail_entry(nan, chan_entries, n_entries,
+						pot_chans->chans[i - 1].pref,
+						buf);
+
+			os_memset(chan_entries, 0, sizeof(chan_entries));
+			n_entries = 0;
+		}
+
+		ret = nan_chan_to_chan_idx_map(nan, chan->op_class,
+					       chan->channel, &cbm);
+		if (ret)
+			continue;
+
+		/* Try to find and entry that matches the operating class */
+		for (j = 0, cur = NULL; j < n_entries; j++) {
+			cur = &chan_entries[j];
+
+			if (!cur->op_class || cur->op_class == chan->op_class)
+				break;
+		}
+
+		if (!n_entries)
+			cur = &chan_entries[n_entries++];
+		else if (j == n_entries && n_entries < global_op_class_size)
+			cur = &chan_entries[n_entries++];
+		else if (!cur)
+			continue;
+
+		cur->op_class = chan->op_class;
+		cur->chan_bitmap |= cbm;
+	}
+
+	if (n_entries)
+		nan_add_pot_avail_entry(nan, chan_entries, n_entries,
+					pot_chans->chans[i - 1].pref, buf);
+
+	wpa_printf(MSG_DEBUG, "NAN: Added potential entries: done");
+}
+
+
+static void nan_build_pot_avail_entry(struct nan_data *nan, struct wpabuf *buf,
+				      u8 map_id)
+{
+	struct nan_channels pot_chans;
+
+	os_memset(&pot_chans, 0, sizeof(pot_chans));
+
+	if (!nan->cfg->get_chans ||
+	    nan->cfg->get_chans(nan->cfg->cb_ctx, map_id, &pot_chans) < 0) {
+		wpa_printf(MSG_DEBUG,
+			   "NAN: Failed to get channels. Not adding potential");
+		return;
+	}
+
+	if (pot_chans.n_chans != 0)
+		nan_build_pot_avail_entry_with_chans(nan, &pot_chans, buf,
+						     map_id);
+	else
+		wpa_printf(MSG_DEBUG,
+			   "NAN: No channels available. Not adding potential: map_id=%u",
+			   map_id);
+
+	os_free(pot_chans.chans);
+}
+
+
 /**
  * nan_add_avail_attrs - Add NAN availability attributes
  * @nan: NAN module context from nan_init()
@@ -519,6 +657,7 @@ int nan_add_avail_attrs(struct nan_data *nan, u8 sequence_id,
 			struct wpabuf *buf)
 {
 	u8 last_map_id = NAN_INVALID_MAP_ID;
+	u32 handled_map_ids = 0;
 	u8 *len_ptr = NULL;
 	u8 i;
 
@@ -569,13 +708,15 @@ int nan_add_avail_attrs(struct nan_data *nan, u8 sequence_id,
 					   "NAN: Add avail attr done: map_id=%u",
 					   last_map_id);
 
+				nan_build_pot_avail_entry(nan, buf,
+							  last_map_id);
 				WPA_PUT_LE16(len_ptr,
 					     (u8 *) wpabuf_put(buf, 0) -
 					     len_ptr - 2);
 			}
 
 			last_map_id = chan->map_id;
-			map_ids_bitmap &= ~BIT(last_map_id);
+			handled_map_ids |= BIT(last_map_id);
 
 			wpa_printf(MSG_DEBUG, "NAN: Add avail attr map_id=%u",
 				   last_map_id);
@@ -590,9 +731,11 @@ int nan_add_avail_attrs(struct nan_data *nan, u8 sequence_id,
 			 * The spec states that this bit should be set if the
 			 * committed changed or if conditional is included. Set
 			 * it anyway, as it is not known what information the
-			 * peer has on our schedule.
+			 * peer has on our schedule. Similarly, always set the
+			 * potential changed bit.
 			 */
-			ctrl |= NAN_AVAIL_CTRL_COMMITTED_CHANGED;
+			ctrl |= NAN_AVAIL_CTRL_COMMITTED_CHANGED |
+				NAN_AVAIL_CTRL_POTENTIAL_CHANGED;
 			wpabuf_put_le16(buf, ctrl);
 		}
 
@@ -609,16 +752,60 @@ int nan_add_avail_attrs(struct nan_data *nan, u8 sequence_id,
 					    op_class, chan_bm, 0, buf);
 	}
 
-	if (last_map_id == NAN_INVALID_MAP_ID) {
+	if (last_map_id != NAN_INVALID_MAP_ID) {
+		nan_build_pot_avail_entry(nan, buf, last_map_id);
+		WPA_PUT_LE16(len_ptr, (u8 *) wpabuf_put(buf, 0) - len_ptr - 2);
+
+		wpa_printf(MSG_DEBUG, "NAN: Add avail attr done: map_id=%u",
+			   last_map_id);
+	} else {
 		wpa_printf(MSG_DEBUG,
-			   "NAN: No valid availability entries added");
-		return -1;
+			   "NAN: No committed/conditional entries were added");
 	}
 
-	wpa_printf(MSG_DEBUG, "NAN: Add avail attr done: map_id=%u",
-		   last_map_id);
+	/*
+	 * Add NAN availability attributes with a single potential availability
+	 * entry for map IDs that are not included in the schedule.
+	 */
+	map_ids_bitmap &= ~handled_map_ids;
+	wpa_printf(MSG_DEBUG,
+		   "NAN: Add avail attrs for remaining map IDs: bitmap=0x%x",
+		   map_ids_bitmap);
 
-	WPA_PUT_LE16(len_ptr, (u8 *) wpabuf_put(buf, 0) - len_ptr - 2);
+	while (map_ids_bitmap) {
+		struct nan_channels pot_chans;
+		u8 map_id = ffs(map_ids_bitmap) - 1;
+		u16 ctrl = map_id << NAN_AVAIL_CTRL_MAP_ID_POS |
+			NAN_AVAIL_CTRL_POTENTIAL_CHANGED;
+
+		map_ids_bitmap &= ~BIT(map_id);
+
+		wpa_printf(MSG_DEBUG, "NAN: Add avail attr for map_id=%u",
+			   map_id);
+
+		os_memset(&pot_chans, 0, sizeof(pot_chans));
+
+		if (!nan->cfg->get_chans ||
+		    nan->cfg->get_chans(nan->cfg->cb_ctx, map_id,
+					&pot_chans) < 0 ||
+		    !pot_chans.chans) {
+			wpa_printf(MSG_DEBUG,
+				   "NAN: No channels available. Not adding potential: map_id=%u",
+				   map_id);
+			continue;
+		}
+
+		wpabuf_put_u8(buf, NAN_ATTR_NAN_AVAILABILITY);
+		len_ptr = wpabuf_put(buf, 2);
+		wpabuf_put_u8(buf, sequence_id);
+		wpabuf_put_le16(buf, ctrl);
+
+		nan_build_pot_avail_entry_with_chans(nan, &pot_chans, buf,
+						     map_id);
+		os_free(pot_chans.chans);
+
+		WPA_PUT_LE16(len_ptr, (u8 *) wpabuf_put(buf, 0) - len_ptr - 2);
+	}
 
 	return 0;
 }
