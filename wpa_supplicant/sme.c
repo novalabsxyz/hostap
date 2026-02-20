@@ -2651,6 +2651,13 @@ mscs_fail:
 		remove_ie(wpa_s->sme.assoc_req_ie,
 			  &wpa_s->sme.assoc_req_ie_len,
 			  WLAN_EID_FAST_BSS_TRANSITION);
+		/* Remove own RSNXE if AP does not advertise RSNXE to match FT
+		 * specific backwards compatibility expectations. */
+		if (!wpa_bss_get_rsnxe(wpa_s, wpa_s->current_bss, ssid,
+				       wpa_s->valid_links))
+			remove_ie(wpa_s->sme.assoc_req_ie,
+				  &wpa_s->sme.assoc_req_ie_len,
+				  WLAN_EID_RSNX);
 		rm_en = get_ie(wpa_s->sme.assoc_req_ie,
 			       wpa_s->sme.assoc_req_ie_len,
 			       WLAN_EID_RRM_ENABLED_CAPABILITIES);
