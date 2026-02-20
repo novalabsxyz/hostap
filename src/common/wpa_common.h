@@ -29,6 +29,7 @@
 #define OWE_DH_GROUP 19
 
 enum rsn_hash_alg {
+	RSN_HASH_NOT_SPECIFIED,
 	RSN_HASH_SHA256,
 	RSN_HASH_SHA384,
 	RSN_HASH_SHA512,
@@ -275,6 +276,7 @@ struct wpa_ptk {
 	size_t kdk_len;
 	size_t ptk_len;
 	size_t ltf_keyseed_len;
+	enum rsn_hash_alg hash_alg;
 	int installed; /* 1 if key has already been installed to driver */
 	bool installed_rx; /* whether TK has been installed as the next TK
 			    * for temporary RX-only use in the driver */
@@ -467,7 +469,8 @@ struct rsn_rdie {
 #endif /* _MSC_VER */
 
 
-int wpa_eapol_key_mic(const u8 *key, size_t key_len, int akmp, int ver,
+int wpa_eapol_key_mic(const u8 *key, size_t key_len, int akmp,
+		      enum rsn_hash_alg hash, int ver,
 		      const u8 *buf, size_t len, u8 *mic);
 int wpa_pmk_to_ptk(const u8 *pmk, size_t pmk_len, const char *label,
 		   const u8 *addr1, const u8 *addr2,
@@ -769,7 +772,7 @@ int wpa_pick_group_cipher(int ciphers);
 int wpa_parse_cipher(const char *value);
 int wpa_write_ciphers(char *start, char *end, int ciphers, const char *delim);
 int wpa_select_ap_group_cipher(int wpa, int wpa_pairwise, int rsn_pairwise);
-unsigned int wpa_mic_len(int akmp, size_t pmk_len);
+unsigned int wpa_mic_len(int akmp, size_t pmk_len, enum rsn_hash_alg hash);
 int wpa_use_akm_defined(int akmp);
 int wpa_use_cmac(int akmp);
 int wpa_use_aes_key_wrap(int akmp);

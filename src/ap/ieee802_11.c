@@ -4602,6 +4602,12 @@ static int __check_assoc_ies(struct hostapd_data *hapd, struct sta_info *sta,
 				resp = WLAN_STATUS_UNSPECIFIED_FAILURE;
 				goto out;
 			}
+#ifdef CONFIG_SAE
+			if (sta->sae && sta->sae->state == SAE_ACCEPTED &&
+			    wpa_key_mgmt_sae_ext_key(sta->sae->akmp))
+				wpa_auth_set_hash_alg_sae_ext_key(
+					sta->wpa_sm, sta->sae->pmk_len);
+#endif /* CONFIG_SAE */
 		}
 
 #ifdef CONFIG_IEEE80211BE
@@ -4695,6 +4701,9 @@ static int __check_assoc_ies(struct hostapd_data *hapd, struct sta_info *sta,
 			wpa_printf(MSG_DEBUG, "SAE: " MACSTR
 				   " using PMKSA caching", MAC2STR(sta->addr));
 			sae_assign_vlan(hapd, sta, sa->sae_vlan_id);
+			if (wpa_key_mgmt_sae_ext_key(sa->akmp))
+				wpa_auth_set_hash_alg_sae_ext_key(
+					sta->wpa_sm, sa->pmk_len);
 		} else if (wpa_auth_uses_sae(sta->wpa_sm) &&
 			   sta->auth_alg != WLAN_AUTH_SAE &&
 			   !(sta->auth_alg == WLAN_AUTH_FT &&

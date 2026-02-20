@@ -102,7 +102,21 @@ static unsigned int wpa_kek2_len(int akmp)
 #endif /* CONFIG_IEEE80211R */
 
 
-unsigned int wpa_mic_len(int akmp, size_t pmk_len)
+static int rsn_mic_len_hash(size_t pmk_len, enum rsn_hash_alg hash)
+{
+	switch (hash) {
+	case RSN_HASH_SHA256:
+		return 16;
+	case RSN_HASH_SHA384:
+		return 24;
+	case RSN_HASH_SHA512:
+		return 32;
+	default:
+		return pmk_len / 2;
+	}
+}
+
+unsigned int wpa_mic_len(int akmp, size_t pmk_len, enum rsn_hash_alg hash)
 {
 	switch (akmp) {
 	case WPA_KEY_MGMT_IEEE8021X_SUITE_B_192:
@@ -115,12 +129,12 @@ unsigned int wpa_mic_len(int akmp, size_t pmk_len)
 	case WPA_KEY_MGMT_FT_FILS_SHA384:
 		return 0;
 	case WPA_KEY_MGMT_DPP:
-		return pmk_len / 2;
+		return rsn_mic_len_hash(pmk_len, hash);
 	case WPA_KEY_MGMT_OWE:
-		return pmk_len / 2;
+		return rsn_mic_len_hash(pmk_len, hash);
 	case WPA_KEY_MGMT_SAE_EXT_KEY:
 	case WPA_KEY_MGMT_FT_SAE_EXT_KEY:
-		return pmk_len / 2;
+		return rsn_mic_len_hash(pmk_len, hash);
 	default:
 		return 16;
 	}
@@ -278,11 +292,68 @@ int wpa_use_aes_key_wrap(int akmp)
 }
 
 
+#if defined(CONFIG_SAE) || defined(CONFIG_OWE) || defined(CONFIG_DPP)
+static int rsn_eapol_key_mic_hash(const u8 *key, size_t key_len, int akmp,
+				  enum rsn_hash_alg hash_alg, int ver,
+				  const u8 *buf, size_t len, u8 *mic)
+{
+	u8 hash[SHA512_MAC_LEN];
+	size_t mic_len;
+
+	if (hash_alg == RSN_HASH_NOT_SPECIFIED) {
+		if (key_len == 128 / 8)
+			hash_alg = RSN_HASH_SHA256;
+		else if (key_len == 192 / 8)
+			hash_alg = RSN_HASH_SHA384;
+		else if (key_len == 256 / 8)
+			hash_alg = RSN_HASH_SHA512;
+		else
+			return -1;
+	}
+
+	wpa_printf(MSG_DEBUG,
+		   "RSN: EAPOL-Key MIC using HMAC-SHA%u (AKM-defined - %s)",
+		   hash_alg == RSN_HASH_SHA512 ? 512 :
+		   hash_alg == RSN_HASH_SHA384 ? 384 : 256,
+		   wpa_key_mgmt_txt(akmp, WPA_PROTO_RSN));
+	wpa_hexdump(MSG_DEBUG, "RSN: KCK", key, key_len);
+
+	if (hash_alg == RSN_HASH_SHA256) {
+		if (hmac_sha256(key, key_len, buf, len, hash))
+			return -1;
+		mic_len = 16;
+#ifdef CONFIG_SHA384
+	} else if (hash_alg == RSN_HASH_SHA384) {
+		if (hmac_sha384(key, key_len, buf, len, hash))
+			return -1;
+		mic_len = 24;
+#endif /* CONFIG_SHA384 */
+#ifdef CONFIG_SHA512
+	} else if (hash_alg == RSN_HASH_SHA512) {
+		if (hmac_sha512(key, key_len, buf, len, hash))
+			return -1;
+		mic_len = 32;
+#endif /* CONFIG_SHA512 */
+	} else {
+		wpa_printf(MSG_INFO,
+			   "RSN: Unsupported KCK length: %u (hash_alg=%d)",
+			   (unsigned int) key_len, hash_alg);
+		return -1;
+	}
+
+	os_memcpy(mic, hash, mic_len);
+	wpa_hexdump(MSG_DEBUG, "RSN: EAPOL-Key MIC", mic, mic_len);
+	return 0;
+}
+#endif /* CONFIG_SAE || CONFIG_OWE || CONFIG_DPP */
+
+
 /**
  * wpa_eapol_key_mic - Calculate EAPOL-Key MIC
  * @key: EAPOL-Key Key Confirmation Key (KCK)
  * @key_len: KCK length in octets
  * @akmp: WPA_KEY_MGMT_* used in key derivation
+ * @hash_alg: Hash algorithm
  * @ver: Key descriptor version (WPA_KEY_INFO_TYPE_*)
  * @buf: Pointer to the beginning of the EAPOL header (version field)
  * @len: Length of the EAPOL frame (from EAPOL header to the end of the frame)
@@ -298,7 +369,8 @@ int wpa_use_aes_key_wrap(int akmp)
  * happened during final editing of the standard and the correct behavior is
  * defined in the last draft (IEEE 802.11i/D10).
  */
-int wpa_eapol_key_mic(const u8 *key, size_t key_len, int akmp, int ver,
+int wpa_eapol_key_mic(const u8 *key, size_t key_len, int akmp,
+		      enum rsn_hash_alg hash_alg, int ver,
 		      const u8 *buf, size_t len, u8 *mic)
 {
 	u8 hash[SHA512_MAC_LEN];
@@ -334,29 +406,9 @@ int wpa_eapol_key_mic(const u8 *key, size_t key_len, int akmp, int ver,
 			return omac1_aes_128(key, buf, len, mic);
 		case WPA_KEY_MGMT_SAE_EXT_KEY:
 		case WPA_KEY_MGMT_FT_SAE_EXT_KEY:
-			wpa_printf(MSG_DEBUG,
-				   "WPA: EAPOL-Key MIC using HMAC-SHA%u (AKM-defined - SAE-EXT-KEY)",
-				   (unsigned int) key_len * 8 * 2);
-			if (key_len == 128 / 8) {
-				if (hmac_sha256(key, key_len, buf, len, hash))
-					return -1;
-#ifdef CONFIG_SHA384
-			} else if (key_len == 192 / 8) {
-				if (hmac_sha384(key, key_len, buf, len, hash))
-					return -1;
-#endif /* CONFIG_SHA384 */
-#ifdef CONFIG_SHA512
-			} else if (key_len == 256 / 8) {
-				if (hmac_sha512(key, key_len, buf, len, hash))
-					return -1;
-#endif /* CONFIG_SHA512 */
-			} else {
-				wpa_printf(MSG_INFO,
-					   "SAE: Unsupported KCK length: %u",
-					   (unsigned int) key_len);
+			if (rsn_eapol_key_mic_hash(key, key_len, akmp, hash_alg,
+						   ver, buf, len, mic) < 0)
 				return -1;
-			}
-			os_memcpy(mic, hash, key_len);
 			break;
 #endif /* CONFIG_SAE */
 #ifdef CONFIG_SUITEB
@@ -379,48 +431,16 @@ int wpa_eapol_key_mic(const u8 *key, size_t key_len, int akmp, int ver,
 #endif /* CONFIG_SUITEB192 */
 #ifdef CONFIG_OWE
 		case WPA_KEY_MGMT_OWE:
-			wpa_printf(MSG_DEBUG,
-				   "WPA: EAPOL-Key MIC using HMAC-SHA%u (AKM-defined - OWE)",
-				   (unsigned int) key_len * 8 * 2);
-			if (key_len == 128 / 8) {
-				if (hmac_sha256(key, key_len, buf, len, hash))
-					return -1;
-			} else if (key_len == 192 / 8) {
-				if (hmac_sha384(key, key_len, buf, len, hash))
-					return -1;
-			} else if (key_len == 256 / 8) {
-				if (hmac_sha512(key, key_len, buf, len, hash))
-					return -1;
-			} else {
-				wpa_printf(MSG_INFO,
-					   "OWE: Unsupported KCK length: %u",
-					   (unsigned int) key_len);
+			if (rsn_eapol_key_mic_hash(key, key_len, akmp, hash_alg,
+						   ver, buf, len, mic) < 0)
 				return -1;
-			}
-			os_memcpy(mic, hash, key_len);
 			break;
 #endif /* CONFIG_OWE */
 #ifdef CONFIG_DPP
 		case WPA_KEY_MGMT_DPP:
-			wpa_printf(MSG_DEBUG,
-				   "WPA: EAPOL-Key MIC using HMAC-SHA%u (AKM-defined - DPP)",
-				   (unsigned int) key_len * 8 * 2);
-			if (key_len == 128 / 8) {
-				if (hmac_sha256(key, key_len, buf, len, hash))
-					return -1;
-			} else if (key_len == 192 / 8) {
-				if (hmac_sha384(key, key_len, buf, len, hash))
-					return -1;
-			} else if (key_len == 256 / 8) {
-				if (hmac_sha512(key, key_len, buf, len, hash))
-					return -1;
-			} else {
-				wpa_printf(MSG_INFO,
-					   "DPP: Unsupported KCK length: %u",
-					   (unsigned int) key_len);
+			if (rsn_eapol_key_mic_hash(key, key_len, akmp, hash_alg,
+						   ver, buf, len, mic) < 0)
 				return -1;
-			}
-			os_memcpy(mic, hash, key_len);
 			break;
 #endif /* CONFIG_DPP */
 #ifdef CONFIG_SHA384
@@ -590,16 +610,19 @@ int wpa_pmk_to_ptk(const u8 *pmk, size_t pmk_len, const char *label,
 		if (sha256_prf(pmk, pmk_len, label, data, data_len,
 			       tmp, ptk_len) < 0)
 			return -1;
+		ptk->hash_alg = RSN_HASH_SHA256;
 	} else if (akmp == WPA_KEY_MGMT_DPP && pmk_len == 48) {
 		wpa_printf(MSG_DEBUG, "WPA: PTK derivation using PRF(SHA384)");
 		if (sha384_prf(pmk, pmk_len, label, data, data_len,
 			       tmp, ptk_len) < 0)
 			return -1;
+		ptk->hash_alg = RSN_HASH_SHA384;
 	} else if (akmp == WPA_KEY_MGMT_DPP && pmk_len == 64) {
 		wpa_printf(MSG_DEBUG, "WPA: PTK derivation using PRF(SHA512)");
 		if (sha512_prf(pmk, pmk_len, label, data, data_len,
 			       tmp, ptk_len) < 0)
 			return -1;
+		ptk->hash_alg = RSN_HASH_SHA512;
 	} else if (akmp == WPA_KEY_MGMT_DPP) {
 		wpa_printf(MSG_INFO, "DPP: Unknown PMK length %u",
 			   (unsigned int) pmk_len);
@@ -613,6 +636,7 @@ int wpa_pmk_to_ptk(const u8 *pmk, size_t pmk_len, const char *label,
 			if (sha256_prf(pmk, pmk_len, label, data, data_len,
 				       tmp, ptk_len) < 0)
 				return -1;
+		ptk->hash_alg = RSN_HASH_SHA256;
 #ifdef CONFIG_SHA384
 		} else if (pmk_len == 48) {
 			wpa_printf(MSG_DEBUG,
@@ -620,6 +644,7 @@ int wpa_pmk_to_ptk(const u8 *pmk, size_t pmk_len, const char *label,
 			if (sha384_prf(pmk, pmk_len, label, data, data_len,
 				       tmp, ptk_len) < 0)
 				return -1;
+		ptk->hash_alg = RSN_HASH_SHA384;
 #endif /* CONFIG_SHA384 */
 #ifdef CONFIG_SHA512
 		} else if (pmk_len == 64) {
@@ -628,6 +653,7 @@ int wpa_pmk_to_ptk(const u8 *pmk, size_t pmk_len, const char *label,
 			if (sha512_prf(pmk, pmk_len, label, data, data_len,
 				       tmp, ptk_len) < 0)
 				return -1;
+		ptk->hash_alg = RSN_HASH_SHA512;
 #endif /* CONFIG_SHA512 */
 		} else {
 			wpa_printf(MSG_INFO, "SAE: Unknown PMK length %u",
@@ -1704,6 +1730,7 @@ int pasn_pmk_to_ptk(const u8 *pmk, size_t pmk_len,
 	}
 
 	ptk->ptk_len = ptk_len;
+	ptk->hash_alg = *alg;
 	forced_memzero(tmp, sizeof(tmp));
 	ret = 0;
 err:

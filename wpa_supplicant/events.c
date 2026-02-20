@@ -6010,7 +6010,8 @@ static void wpa_supplicant_event_assoc_auth(struct wpa_supplicant *wpa_s,
 	wpa_s->last_eapol_matches_bssid = 1;
 
 	wpa_sm_set_rx_replay_ctr(wpa_s->wpa, data->assoc_info.key_replay_ctr);
-	wpa_sm_set_ptk_kck_kek(wpa_s->wpa, data->assoc_info.ptk_kck,
+	wpa_sm_set_ptk_kck_kek(wpa_s->wpa, RSN_HASH_NOT_SPECIFIED,
+			       data->assoc_info.ptk_kck,
 			       data->assoc_info.ptk_kck_len,
 			       data->assoc_info.ptk_kek,
 			       data->assoc_info.ptk_kek_len);

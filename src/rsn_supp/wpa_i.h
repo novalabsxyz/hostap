@@ -26,6 +26,7 @@ struct wpa_sm {
 	u8 pmk[PMK_LEN_MAX];
 	size_t pmk_len;
 	struct wpa_ptk ptk, tptk;
+	enum rsn_hash_alg hash_alg;
 	int ptk_set, tptk_set;
 	bool tk_set; /* Whether any TK is configured to the driver */
 	unsigned int msg_3_of_4_ok:1;
