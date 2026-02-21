@@ -636,6 +636,7 @@ static void wpas_eppke_initialize(struct wpa_supplicant *wpa_s,
 	u8 ap_rsne_len, ap_rsnxe_len;
 	u32 capab = 0;
 	int group;
+	bool derive_kdk;
 
 	pasn = &wpa_s->pasn;
 
@@ -723,6 +724,58 @@ static void wpas_eppke_initialize(struct wpa_supplicant *wpa_s,
 		return;
 	}
 #endif /* CONFIG_SAE */
+
+	derive_kdk = (wpa_s->drv_flags2 & WPA_DRIVER_FLAGS2_SEC_LTF_STA) &&
+		ieee802_11_rsnx_capab(ap_rsnxe, WLAN_RSNX_CAPAB_SECURE_LTF);
+#ifdef CONFIG_TESTING_OPTIONS
+	if (!derive_kdk)
+		derive_kdk = wpa_s->conf->force_kdk_derivation;
+#endif /* CONFIG_TESTING_OPTIONS */
+	if (derive_kdk)
+		pasn_enable_kdk_derivation(pasn);
+	else
+		pasn_disable_kdk_derivation(pasn);
+
+	wpa_printf(MSG_DEBUG, "PASN: kdk_len=%zu", pasn->kdk_len);
+
+	if ((wpa_s->drv_flags2 & WPA_DRIVER_FLAGS2_SEC_LTF_STA) &&
+	    ieee802_11_rsnx_capab(ap_rsnxe, WLAN_RSNX_CAPAB_SECURE_LTF))
+		pasn->secure_ltf = true;
+	else
+		pasn->secure_ltf = false;
+
+#ifdef CONFIG_TESTING_OPTIONS
+	pasn->corrupt_mic = wpa_s->conf->pasn_corrupt_mic;
+#endif /* CONFIG_TESTING_OPTIONS */
+
+	if (wpa_s->drv_flags2 & WPA_DRIVER_FLAGS2_SEC_LTF_STA)
+		capab |= BIT(WLAN_RSNX_CAPAB_SECURE_LTF);
+	if (wpa_s->drv_flags2 & WPA_DRIVER_FLAGS2_SEC_RTT_STA)
+		capab |= BIT(WLAN_RSNX_CAPAB_SECURE_RTT);
+	if (wpa_s->drv_flags2 & WPA_DRIVER_FLAGS2_PROT_RANGE_NEG_STA) {
+		/*
+		 * URNM_MFPR_X20 is a subset of URNM_MFPR which excludes 20 MHz
+		 * bandwidth from mandating protected Management frames. Set
+		 * URNM_MFPR only when URNM_MFPR_X20 is not set.
+		 */
+		if (wpa_s->disable_urnm_mfpr) {
+			wpa_sm_set_param(wpa_s->wpa, WPA_PARAM_URNM_MFPR, 0);
+		} else {
+			capab |= BIT(WLAN_RSNX_CAPAB_URNM_MFPR);
+			wpa_sm_set_param(wpa_s->wpa, WPA_PARAM_URNM_MFPR, 1);
+		}
+		if (wpa_s->urnm_mfpr_x20) {
+			capab |= BIT(WLAN_RSNX_CAPAB_URNM_MFPR_X20);
+			wpa_sm_set_param(wpa_s->wpa, WPA_PARAM_URNM_MFPR_X20,
+					 1);
+		} else {
+			wpa_sm_set_param(wpa_s->wpa, WPA_PARAM_URNM_MFPR_X20,
+					 0);
+		}
+	}
+	if ((wpa_s->drv_flags2 & WPA_DRIVER_FLAGS2_SPP_AMSDU) &&
+	    ieee802_11_rsnx_capab(ap_rsnxe, WLAN_RSNX_CAPAB_SPP_A_MSDU))
+		capab |= BIT(WLAN_RSNX_CAPAB_SPP_A_MSDU);
 
 	pasn_set_rsnxe_caps(pasn, capab);
 	pasn_set_initiator_pmksa(pasn, wpa_sm_get_pmksa_cache(wpa_s->wpa));
