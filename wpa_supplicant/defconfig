@@ -510,7 +510,6 @@ CONFIG_IEEE80211AX=y
 CONFIG_IEEE80211BE=y
 
 # Wireless Network Management (IEEE Std 802.11v-2011)
-# Note: This is experimental and not complete implementation.
 #CONFIG_WNM=y
 
 # Interworking (IEEE 802.11u)
@@ -641,8 +640,7 @@ CONFIG_OWE=y
 CONFIG_DPP=y
 # DPP version 2 support
 CONFIG_DPP2=y
-# DPP version 3 support (experimental and still changing; do not enable for
-# production use)
+# DPP version 3 support
 #CONFIG_DPP3=y
 
 # Wired equivalent privacy (WEP)
@@ -663,9 +661,6 @@ CONFIG_DPP2=y
 #CONFIG_NO_TKIP=y
 
 # Pre-Association Security Negotiation (PASN)
-# Experimental implementation based on IEEE P802.11z/D2.6 and the protocol
-# design is still subject to change. As such, this should not yet be enabled in
-# production use.
 #CONFIG_PASN=y
 
 # Disable support for Radio Measurement (IEEE 802.11k) and supported operating
