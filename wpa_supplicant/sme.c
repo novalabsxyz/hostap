@@ -621,6 +621,7 @@ static void sme_send_authentication(struct wpa_supplicant *wpa_s,
 	const u8 *mbo_ie;
 #endif /* CONFIG_MBO */
 	int omit_rsnxe = 0;
+	unsigned int keys_to_clear = 0;
 
 	if (bss == NULL) {
 		wpa_msg(wpa_s, MSG_ERROR, "SME: No scan result available for "
@@ -725,8 +726,10 @@ static void sme_send_authentication(struct wpa_supplicant *wpa_s,
 		int i;
 
 		for (i = 0; i < NUM_WEP_KEYS; i++) {
-			if (ssid->wep_key_len[i])
+			if (ssid->wep_key_len[i]) {
 				params.wep_key[i] = ssid->wep_key[i];
+				keys_to_clear |= BIT(i);
+			}
 			params.wep_key_len[i] = ssid->wep_key_len[i];
 		}
 		params.wep_tx_keyidx = ssid->wep_tx_keyidx;
@@ -1213,6 +1216,7 @@ no_fils:
 
 
 	wpa_s->sme.auth_alg = params.auth_alg;
+	wpa_s->keys_cleared &= ~keys_to_clear;
 	if (wpa_drv_authenticate(wpa_s, &params) < 0) {
 		wpa_msg(wpa_s, MSG_INFO, "SME: Authentication request to the "
 			"driver failed");
