@@ -7381,7 +7381,7 @@ static int p2p_ctrl_group_add_persistent(struct wpa_supplicant *wpa_s,
 					     vht_chwidth, he, edmg,
 					     NULL, 0, 0, allow_6ghz, 0,
 					     go_bssid, NULL, NULL, NULL, 0,
-					     join);
+					     join, false);
 }
 
 

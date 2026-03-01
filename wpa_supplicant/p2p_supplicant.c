@@ -3949,7 +3949,7 @@ static void wpas_invitation_received(void *ctx, const u8 *sa, const u8 *bssid,
 				wpa_s->conf->p2p_go_edmg, NULL,
 				go ? P2P_MAX_INITIAL_CONN_WAIT_GO_REINVOKE : 0,
 				1, is_p2p_allow_6ghz(wpa_s->global->p2p), 0,
-				bssid, sa, pmkid, pmk, pmk_len, false);
+				bssid, sa, pmkid, pmk, pmk_len, false, true);
 		} else if (bssid) {
 			wpa_s->user_initiated_pd = 0;
 			wpa_msg_global(wpa_s, MSG_INFO,
@@ -4254,7 +4254,8 @@ static void wpas_invitation_result(void *ctx, int status, const u8 *new_ssid,
 				      P2P_MAX_INITIAL_CONN_WAIT_GO_REINVOKE :
 				      0, 1,
 				      is_p2p_allow_6ghz(wpa_s->global->p2p), 0,
-				      bssid, peer, pmkid, pmk, pmk_len, false);
+				      bssid, peer, pmkid, pmk, pmk_len, false,
+				      true);
 }
 
 
@@ -4811,8 +4812,9 @@ int wpas_p2p_get_vht160_center(struct wpa_supplicant *wpa_s,
 		if (!wpa_s->p2p_go_allow_dfs && !wpa_s->allow_p2p_assisted_dfs)
 			return 0;
 
-		/* For negotiated GO, require assisted DFS */
-		if (wpa_s->p2p_neg_go_setup && !wpa_s->assisted_dfs)
+		/* For negotiated GO and P2P invitation, require assisted DFS */
+		if ((wpa_s->p2p_neg_go_setup || wpa_s->p2p_in_invitation) &&
+		    !wpa_s->assisted_dfs)
 			return 0;
 	} else if (ret != ALLOWED) {
 		return 0;
@@ -5367,7 +5369,7 @@ static void wpas_p2ps_prov_complete(void *ctx, enum p2p_status_code status,
 					WPAS_MODE_P2P_GO ?
 					P2P_MAX_INITIAL_CONN_WAIT_GO_REINVOKE :
 					0, 0, false, 0, NULL, NULL, NULL, NULL,
-					0, false);
+					0, false, false);
 			} else if (response_done) {
 				wpas_p2p_group_add(wpa_s, 1, freq,
 						   0, 0, 0, 0, 0, 0, false,
@@ -5493,7 +5495,7 @@ static int wpas_prov_disc_resp_cb(void *ctx)
 			persistent_go->mode == WPAS_MODE_P2P_GO ?
 			P2P_MAX_INITIAL_CONN_WAIT_GO_REINVOKE : 0, 0,
 			is_p2p_allow_6ghz(wpa_s->global->p2p), 0, NULL, NULL,
-			NULL, NULL, 0, false);
+			NULL, NULL, 0, false, false);
 	} else {
 		wpas_p2p_group_add(wpa_s, 1, freq, 0, 0, 0, 0, 0, 0,
 				   is_p2p_allow_6ghz(wpa_s->global->p2p),
@@ -8360,7 +8362,8 @@ int wpas_p2p_group_add_persistent(struct wpa_supplicant *wpa_s,
 				  bool allow_6ghz, int retry_limit,
 				  const u8 *go_bssid, const u8 *dev_addr,
 				  const u8 *pmkid, const u8 *pmk,
-				  size_t pmk_len, bool join)
+				  size_t pmk_len, bool join,
+				  bool is_invitation)
 {
 	struct p2p_go_neg_results params;
 	int go = 0, freq;
@@ -8483,6 +8486,7 @@ int wpas_p2p_group_add_persistent(struct wpa_supplicant *wpa_s,
 	p2p_channels_to_freqs(channels, params.freq_list, P2P_MAX_CHANNELS);
 
 	wpa_s->p2p_first_connection_timeout = connection_timeout;
+	wpa_s->p2p_in_invitation = is_invitation;
 	params.p2p2 = wpa_s->p2p2;
 	wpas_start_go(wpa_s, &params, 0, wpa_s->p2p_mode);
 
