@@ -85,6 +85,10 @@ struct mld_info {
 	struct mld_link_info links[MAX_NUM_MLD_LINKS];
 };
 
+#ifdef CONFIG_WIFI_STATS
+struct wifi_stats_sta_buf;
+#endif /* CONFIG_WIFI_STATS */
+
 struct sta_info {
 	struct sta_info *next; /* next entry in sta list */
 	struct sta_info *hnext; /* next entry in hash table list */
@@ -336,6 +340,10 @@ struct sta_info {
 
 	struct wpabuf *sae_pw_id;
 	unsigned int sae_pw_id_counter;
+
+#ifdef CONFIG_WIFI_STATS
+	struct wifi_stats_sta_buf *wifi_stats;
+#endif /* CONFIG_WIFI_STATS */
 };
 
 

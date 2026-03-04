@@ -39,6 +39,10 @@ union wps_event_data;
 struct mesh_conf;
 #endif /* CONFIG_MESH */
 
+#ifdef CONFIG_WIFI_STATS
+struct wifi_stats_ctx;
+#endif /* CONFIG_WIFI_STATS */
+
 #ifdef CONFIG_CTRL_IFACE_UDP
 #define CTRL_IFACE_COOKIE_LEN 8
 #endif /* CONFIG_CTRL_IFACE_UDP */
@@ -753,6 +757,10 @@ struct hostapd_iface {
 	/* Use assisted DFS functionality from the driver. This is used only
 	 * in wpa_supplicant builds for P2P GO functionality. */
 	bool assisted_dfs;
+
+#ifdef CONFIG_WIFI_STATS
+	struct wifi_stats_ctx *wifi_stats;
+#endif /* CONFIG_WIFI_STATS */
 };
 
 /* hostapd.c */

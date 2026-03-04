@@ -422,3 +422,7 @@ CONFIG_DPP2=y
 #CONFIG_ENC_ASSOC=y
 # PMKSA caching privacy support
 #CONFIG_PMKSA_PRIVACY=y
+
+# WiFi statistics collection with RADIUS Connect-Info support
+# per draft-grayson-connectinfo-07
+#CONFIG_WIFI_STATS=y
