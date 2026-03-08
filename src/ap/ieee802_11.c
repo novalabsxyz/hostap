@@ -4482,12 +4482,24 @@ static bool hapd_is_known_sta(struct hostapd_data *hapd, struct sta_info *sta,
 
 
 static bool check_sa_query(struct hostapd_data *hapd, struct sta_info *sta,
-			   int reassoc, const u8 *ies, size_t ies_len)
+			   int reassoc, const u8 *ies, size_t ies_len,
+			   bool enc_assoc)
 {
 	if ((sta->flags &
 	     (WLAN_STA_ASSOC | WLAN_STA_MFP | WLAN_STA_AUTHORIZED)) !=
 	    (WLAN_STA_ASSOC | WLAN_STA_MFP | WLAN_STA_AUTHORIZED))
 		return false;
+
+#ifdef CONFIG_ENC_ASSOC
+	if (enc_assoc && sta->epp_sta) {
+		/* Skip SA Query since either the STA knows the PTK that is in
+		 * use in the existing association or a new EPPKE authentication
+		 * has already authenticated the STA and has replaced the TK and
+		 * there is not really any point in starting SA Query procedure.
+		 */
+		return false;
+	}
+#endif /* CONFIG_ENC_ASSOC */
 
 	if (!sta->sa_query_timed_out && sta->sa_query_count > 0)
 		ap_check_sa_query_timeout(hapd, sta);
@@ -6374,7 +6386,9 @@ static void handle_assoc(struct hostapd_data *hapd,
 	}
 #endif /* CONFIG_MBO */
 
-	if (hapd->conf->wpa && check_sa_query(hapd, sta, reassoc, pos, left)) {
+	if (hapd->conf->wpa &&
+	    check_sa_query(hapd, sta, reassoc, pos, left,
+			   fc & WLAN_FC_PROTECTED)) {
 		resp = WLAN_STATUS_ASSOC_REJECTED_TEMPORARILY;
 		goto fail;
 	}
