@@ -2114,5 +2114,6 @@ int wpas_get_owe_trans_network(const u8 *owe_ie, const u8 **bssid,
 void wpas_update_dfs_ap_info(struct wpa_supplicant *wpa_s, int freq,
 			     enum chan_width ap_ch_width,
 			     bool disconnect_evt);
+void wpas_configure_frame_filters(struct wpa_supplicant *wpa_s);
 
 #endif /* WPA_SUPPLICANT_I_H */

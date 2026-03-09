@@ -1354,6 +1354,22 @@ struct wpa_ssid {
 	 * connection even if the same cached PMKSA is reused.
 	 */
 	int pmksa_privacy;
+
+	/**
+	 * drop_unicast_ip_in_l2_multicast - Drop unicast IP packets in L2
+	 *	multicast frames in all networks, not just Passpoint non-DGAF
+	 *	networks
+	 */
+	bool drop_unicast_ip_in_l2_multicast;
+
+	/**
+	 * always_use_proxy_arp - Always rely on proxy ARP even in non-Passpoint
+	 *	networks
+	 * 0 = disabled
+	 * 1 = check AP's extended capabilities
+	 * 2 = always enable
+	 */
+	u8 always_use_proxy_arp;
 };
 
 #endif /* CONFIG_SSID_H */

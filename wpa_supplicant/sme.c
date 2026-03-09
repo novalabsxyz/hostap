@@ -1440,9 +1440,7 @@ no_fils:
 	if (old_ssid != wpa_s->current_ssid)
 		wpas_notify_network_changed(wpa_s);
 
-#ifdef CONFIG_HS20
-	hs20_configure_frame_filters(wpa_s);
-#endif /* CONFIG_HS20 */
+	wpas_configure_frame_filters(wpa_s);
 
 #ifdef CONFIG_P2P
 	/*

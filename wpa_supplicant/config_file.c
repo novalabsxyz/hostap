@@ -1040,6 +1040,8 @@ static void wpa_config_write_network(FILE *f, struct wpa_ssid *ssid,
 #ifdef CONFIG_PMKSA_PRIVACY
 	INT(pmksa_privacy);
 #endif /* CONFIG_PMKSA_PRIVACY */
+	INT_DEF(drop_unicast_ip_in_l2_multicast, 1);
+	INT_DEF(always_use_proxy_arp, 0);
 #undef STR
 #undef INT
 #undef INT_DEF

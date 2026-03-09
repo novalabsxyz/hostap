@@ -2843,6 +2843,8 @@ static const struct parse_data ssid_fields[] = {
 #ifdef CONFIG_PMKSA_PRIVACY
 	{ INT_RANGE(pmksa_privacy, 0, 1)},
 #endif /* CONFIG_PMKSA_PRIVACY */
+	{ INT_RANGE(drop_unicast_ip_in_l2_multicast, 0, 1)},
+	{ INT_RANGE(always_use_proxy_arp, 0, 2)},
 };
 
 #undef OFFSET
@@ -3408,6 +3410,7 @@ void wpa_config_set_network_defaults(struct wpa_ssid *ssid)
 	ssid->mac_addr = WPAS_MAC_ADDR_STYLE_NOT_SET;
 	ssid->max_oper_chwidth = DEFAULT_MAX_OPER_CHWIDTH;
 	ssid->rsn_overriding = RSN_OVERRIDING_NOT_SET;
+	ssid->drop_unicast_ip_in_l2_multicast = true;
 }
 
 
