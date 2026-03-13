@@ -4186,6 +4186,95 @@ static void nl80211_nan_next_dw_event(struct wpa_driver_nl80211_data *drv,
 #endif /* CONFIG_NAN */
 
 
+static void nl80211_incumbt_sig_intf_event(struct i802_bss *bss,
+					   struct nlattr **tb)
+{
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	union wpa_event_data data;
+	struct i802_bss *bss_iter;
+
+	if (!tb[NL80211_ATTR_WIPHY_FREQ] || !tb[NL80211_ATTR_CHANNEL_WIDTH] ||
+	    !tb[NL80211_ATTR_CENTER_FREQ1] ||
+	    !tb[NL80211_ATTR_INCUMBENT_SIGNAL_INTERFERENCE_BITMAP])
+		return;
+
+	os_memset(&data, 0, sizeof(data));
+
+	data.incumbt_sig_intf_event.freq =
+		nla_get_u32(tb[NL80211_ATTR_WIPHY_FREQ]);
+
+	data.incumbt_sig_intf_event.chan_width =
+		convert2width(nla_get_u32(tb[NL80211_ATTR_CHANNEL_WIDTH]));
+
+	data.incumbt_sig_intf_event.cf1 =
+		nla_get_u32(tb[NL80211_ATTR_CENTER_FREQ1]);
+
+	if (tb[NL80211_ATTR_CENTER_FREQ2])
+		data.incumbt_sig_intf_event.cf2 =
+			nla_get_u32(tb[NL80211_ATTR_CENTER_FREQ2]);
+
+	data.incumbt_sig_intf_event.chan_bw_interference_bitmap =
+		nla_get_u32(tb[NL80211_ATTR_INCUMBENT_SIGNAL_INTERFERENCE_BITMAP]);
+
+	data.incumbt_sig_intf_event.link_id =
+		nl80211_get_link_id_by_freq(bss,
+					    data.incumbt_sig_intf_event.freq);
+	if (data.incumbt_sig_intf_event.link_id == NL80211_DRV_LINK_ID_NA) {
+		/* For non-MLO operation, freq should still match */
+		if (!bss->valid_links &&
+		    (int) bss->links[0].freq ==
+		    data.incumbt_sig_intf_event.freq)
+			goto process_incumbt_intf_event;
+	} else {
+		/* Valid link ID was found */
+		goto process_incumbt_intf_event;
+	}
+
+	wpa_printf(MSG_DEBUG,
+		   "nl80211: Checking suitable BSS for the incumbent intereference event");
+
+	/* This event comes without ifidx and wdev_id. Hence need to check on
+	 * all BSSs. */
+	for (bss_iter = drv->first_bss; bss_iter; bss_iter = bss_iter->next) {
+		data.incumbt_sig_intf_event.link_id =
+			nl80211_get_link_id_by_freq(
+				bss_iter, data.incumbt_sig_intf_event.freq);
+		if (data.incumbt_sig_intf_event.link_id ==
+		    NL80211_DRV_LINK_ID_NA) {
+			/* For non-MLO operation, freq should still match */
+			if (!bss_iter->valid_links &&
+			    (int) bss_iter->links[0].freq ==
+			    data.incumbt_sig_intf_event.freq) {
+				bss = bss_iter;
+				goto process_incumbt_intf_event;
+			}
+		} else {
+			/* Valid link ID was found */
+			bss = bss_iter;
+			goto process_incumbt_intf_event;
+		}
+	}
+
+	wpa_printf(MSG_DEBUG,
+		   "nl80211: Incumbent signal interference event on unknown freq on %s",
+		   bss->ifname);
+
+	return;
+
+process_incumbt_intf_event:
+	wpa_printf(MSG_DEBUG,
+		   "nl80211: Incumbent signal interference event on freq %d MHz, width: %d, cf1: %d MHz, cf2: %d MHz, bitmap: 0x%x, link_id: %d",
+		   data.incumbt_sig_intf_event.freq,
+		   data.incumbt_sig_intf_event.chan_width,
+		   data.incumbt_sig_intf_event.cf1,
+		   data.incumbt_sig_intf_event.cf2,
+		   data.incumbt_sig_intf_event.chan_bw_interference_bitmap,
+		   data.incumbt_sig_intf_event.link_id);
+
+	wpa_supplicant_event(bss->ctx, EVENT_INCUMBT_SIG_INTF_DETECTED, &data);
+}
+
+
 static void do_process_drv_event(struct i802_bss *bss, int cmd,
 				 struct nlattr **tb)
 {
@@ -4466,6 +4555,9 @@ static void do_process_drv_event(struct i802_bss *bss, int cmd,
 		nl80211_nan_next_dw_event(drv, tb);
 		break;
 #endif /* CONFIG_NAN */
+	case NL80211_CMD_INCUMBENT_SIGNAL_DETECT:
+		nl80211_incumbt_sig_intf_event(bss, tb);
+		break;
 	default:
 		wpa_dbg(drv->ctx, MSG_DEBUG, "nl80211: Ignored unknown event "
 			"(cmd=%d)", cmd);

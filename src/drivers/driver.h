@@ -6268,6 +6268,12 @@ enum wpa_event_type {
 	 * The event data includes the DW frequency.
 	 */
 	EVENT_NAN_NEXT_DW,
+
+	/**
+	 * EVENT_INCUMBT_SIG_INTF_DETECTED - Notification of incumbent signal
+	 * interference detection.
+	 */
+	EVENT_INCUMBT_SIG_INTF_DETECTED,
 };
 
 
@@ -7276,6 +7282,18 @@ union wpa_event_data {
 	struct nan_next_dw_info {
 		int freq;
 	} nan_next_dw_info;
+
+	/**
+	 * Data for EVENT_INCUMBT_SIG_INTF
+	 */
+	struct incumbt_sig_intf_event {
+		int freq;
+		enum chan_width chan_width;
+		int cf1;
+		int cf2;
+		u32 chan_bw_interference_bitmap;
+		int link_id;
+	} incumbt_sig_intf_event;
 };
 
 /**
