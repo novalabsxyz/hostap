@@ -3489,6 +3489,27 @@ int chwidth_freq2_to_ch_width(int chwidth, int freq2)
 }
 
 
+enum oper_chan_width chan_width_to_oper_chwidth(enum chan_width chan_width)
+{
+	switch (chan_width) {
+	case CHAN_WIDTH_20_NOHT:
+	case CHAN_WIDTH_20:
+	case CHAN_WIDTH_40:
+		return CONF_OPER_CHWIDTH_USE_HT;
+	case CHAN_WIDTH_80:
+		return CONF_OPER_CHWIDTH_80MHZ;
+	case CHAN_WIDTH_80P80:
+		return CONF_OPER_CHWIDTH_80P80MHZ;
+	case CHAN_WIDTH_160:
+		return CONF_OPER_CHWIDTH_160MHZ;
+	case CHAN_WIDTH_320:
+		return CONF_OPER_CHWIDTH_320MHZ;
+	default:
+		return CONF_OPER_CHWIDTH_USE_HT;
+	}
+}
+
+
 struct wpabuf * ieee802_11_defrag(const u8 *data, size_t len, bool ext_elem)
 {
 	struct wpabuf *buf;
