@@ -232,6 +232,27 @@ enum {
 	RADIUS_VENDOR_ATTR_WFA_HS20_T_C_URL = 10,
 };
 
+#define RADIUS_VENDOR_ID_WBA	14122
+#define RADIUS_WISPR_AV_BW_UP	7
+#define RADIUS_WISPR_AV_BW_DOWN	8
+
+/* WBA Quality Metrics VSAs (draft-grayson-radius-quality-metrics-01);
+ * vendor-type values are provisional pending IANA assignment */
+enum {
+	RADIUS_WBA_ATTR_WAN_RTT = 100,
+	RADIUS_WBA_ATTR_CHAN_UTIL = 101,
+	RADIUS_WBA_ATTR_CHAN_UTIL_ACC = 102,
+	RADIUS_WBA_ATTR_NOISE_FLOOR = 103,
+	RADIUS_WBA_ATTR_MIN_RSSI = 104,
+	RADIUS_WBA_ATTR_WIFI_GLOBAL_OC = 105,
+	RADIUS_WBA_ATTR_STA_COUNT = 106,
+	RADIUS_WBA_ATTR_STA_COUNT_LIN_AVG = 107,
+	RADIUS_WBA_ATTR_STA_COUNT_EXP_AVG = 108,
+	RADIUS_WBA_ATTR_NOISE = 109,
+	RADIUS_WBA_ATTR_NOISE_LIN_AVG = 110,
+	RADIUS_WBA_ATTR_NOISE_EXP_AVG = 111,
+};
+
 #ifdef _MSC_VER
 #pragma pack(pop)
 #endif /* _MSC_VER */
@@ -310,6 +331,8 @@ int radius_msg_add_mppe_keys(struct radius_msg *msg,
 			     const u8 *send_key, size_t send_key_len,
 			     const u8 *recv_key, size_t recv_key_len);
 int radius_msg_add_wfa(struct radius_msg *msg, u8 subtype, const u8 *data,
+		       size_t len);
+int radius_msg_add_wba(struct radius_msg *msg, u8 subtype, const u8 *data,
 		       size_t len);
 int radius_msg_add_ext_vs(struct radius_msg *msg, u16 type, u32 vendor_id,
 			  u8 vendor_type, const u8 *data, size_t len);

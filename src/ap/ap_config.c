@@ -321,6 +321,10 @@ struct hostapd_config * hostapd_config_defaults(void)
 	conf->wifi_stats_wba_enabled = 1;
 #endif /* CONFIG_WIFI_STATS */
 
+#ifdef CONFIG_WBA_QM
+	conf->wba_qm_enabled = 1;
+#endif /* CONFIG_WBA_QM */
+
 	return conf;
 }
 

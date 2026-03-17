@@ -2455,6 +2455,19 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 			   "wifi_stats: Configured metric=%s algorithm=%s",
 			   metric_name, pos);
 #endif /* CONFIG_WIFI_STATS */
+#ifdef CONFIG_WBA_QM
+	} else if (os_strcmp(buf, "wba_qm_enabled") == 0) {
+		char *endptr;
+		long val = strtol(pos, &endptr, 10);
+		if (endptr == pos || *endptr != '\0' ||
+		    (val != 0 && val != 1)) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wba_qm_enabled '%s' (must be 0 or 1)",
+				   line, pos);
+			return 1;
+		}
+		conf->wba_qm_enabled = val;
+#endif /* CONFIG_WBA_QM */
 	} else if (os_strcmp(buf, "country_code") == 0) {
 		if (pos[0] < 'A' || pos[0] > 'Z' ||
 		    pos[1] < 'A' || pos[1] > 'Z') {

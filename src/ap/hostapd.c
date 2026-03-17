@@ -27,6 +27,9 @@
 #include "wifi_stats/wifi_stats.h"
 static void hostapd_reload_wifi_stats_config(struct hostapd_iface *iface);
 #endif /* CONFIG_WIFI_STATS */
+#ifdef CONFIG_WBA_QM
+#include "wba_quality_metrics.h"
+#endif /* CONFIG_WBA_QM */
 #include "hostapd.h"
 #include "authsrv.h"
 #include "sta_info.h"
@@ -2999,6 +3002,15 @@ int hostapd_setup_interface(struct hostapd_iface *iface)
 	}
 #endif /* CONFIG_WIFI_STATS */
 
+#ifdef CONFIG_WBA_QM
+	if (!iface->wba_qm && iface->conf->wba_qm_enabled) {
+		iface->wba_qm = wba_qm_init(iface);
+		if (!iface->wba_qm)
+			wpa_printf(MSG_WARNING,
+				   "wba_qm: failed to allocate context, continuing without quality metrics");
+	}
+#endif /* CONFIG_WBA_QM */
+
 	return 0;
 }
 
@@ -3106,6 +3118,13 @@ void hostapd_interface_deinit(struct hostapd_iface *iface)
 		iface->wifi_stats = NULL;
 	}
 #endif /* CONFIG_WIFI_STATS */
+
+#ifdef CONFIG_WBA_QM
+	if (iface->wba_qm) {
+		wba_qm_deinit(iface->wba_qm);
+		iface->wba_qm = NULL;
+	}
+#endif /* CONFIG_WBA_QM */
 }
 
 

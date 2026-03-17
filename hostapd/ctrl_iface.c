@@ -69,6 +69,9 @@
 #ifdef CONFIG_WIFI_STATS
 #include "wifi_stats/wifi_stats.h"
 #endif /* CONFIG_WIFI_STATS */
+#ifdef CONFIG_WBA_QM
+#include "ap/wba_quality_metrics.h"
+#endif /* CONFIG_WBA_QM */
 #include "wps/wps_defs.h"
 #include "wps/wps.h"
 #include "fst/fst_ctrl_iface.h"
@@ -1260,6 +1263,23 @@ static int hostapd_ctrl_iface_set(struct hostapd_data *hapd, char *cmd)
 		 * disallowing station logic.
 		 */
 #endif /* CONFIG_MBO */
+#ifdef CONFIG_WBA_QM
+	} else if (os_strcasecmp(cmd, "wba_qm_enabled") == 0) {
+		char *endptr;
+		long val = strtol(value, &endptr, 10);
+		if (endptr == value || *endptr != '\0' ||
+		    (val != 0 && val != 1))
+			return -1;
+		hapd->iconf->wba_qm_enabled = val;
+		if (val && !hapd->iface->wba_qm) {
+			hapd->iface->wba_qm = wba_qm_init(hapd->iface);
+			if (!hapd->iface->wba_qm)
+				return -1;
+		} else if (!val && hapd->iface->wba_qm) {
+			wba_qm_deinit(hapd->iface->wba_qm);
+			hapd->iface->wba_qm = NULL;
+		}
+#endif /* CONFIG_WBA_QM */
 #ifdef CONFIG_DPP
 	} else if (os_strcasecmp(cmd, "dpp_configurator_params") == 0) {
 		os_free(hapd->dpp_configurator_params);
@@ -1542,6 +1562,17 @@ static int hostapd_ctrl_iface_wifi_stats_connect_info(struct hostapd_data *hapd,
 	return written;
 }
 #endif /* CONFIG_WIFI_STATS */
+
+#ifdef CONFIG_WBA_QM
+static int hostapd_ctrl_iface_wba_qm_status(struct hostapd_data *hapd,
+					     char *buf, size_t buflen)
+{
+	if (!hapd->iface->wba_qm)
+		return -1;
+
+	return wba_qm_get_status(hapd->iface->wba_qm, buf, buflen);
+}
+#endif /* CONFIG_WBA_QM */
 
 static int hostapd_ctrl_iface_get(struct hostapd_data *hapd, char *cmd,
 				  char *buf, size_t buflen)
@@ -4804,6 +4835,10 @@ static int hostapd_ctrl_iface_receive_process(struct hostapd_data *hapd,
 	} else if (os_strncmp(buf, "WIFI_STATS_CONNECT_INFO ", 24) == 0) {
 		reply_len = hostapd_ctrl_iface_wifi_stats_connect_info(hapd, buf + 24, reply, reply_size);
 #endif /* CONFIG_WIFI_STATS */
+#ifdef CONFIG_WBA_QM
+	} else if (os_strcmp(buf, "WBA_QM_STATUS") == 0) {
+		reply_len = hostapd_ctrl_iface_wba_qm_status(hapd, reply, reply_size);
+#endif /* CONFIG_WBA_QM */
 	} else {
 		os_memcpy(reply, "UNKNOWN COMMAND\n", 16);
 		reply_len = 16;

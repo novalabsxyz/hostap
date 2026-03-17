@@ -41,6 +41,9 @@
 #ifdef CONFIG_WIFI_STATS
 #include "wifi_stats/wifi_stats.h"
 #endif /* CONFIG_WIFI_STATS */
+#ifdef CONFIG_WBA_QM
+#include "wba_quality_metrics.h"
+#endif /* CONFIG_WBA_QM */
 
 
 #ifdef CONFIG_HS20
@@ -559,6 +562,12 @@ static int add_common_radius_sta_attr(struct hostapd_data *hapd,
 		wpa_printf(MSG_ERROR, "Could not add Connect-Info");
 		return -1;
 	}
+
+#ifdef CONFIG_WBA_QM
+	/* VSA failure is non-fatal */
+	if (hapd->iface->wba_qm)
+		wba_qm_add_radius_attrs(hapd->iface->wba_qm, hapd, msg);
+#endif /* CONFIG_WBA_QM */
 
 	if (sta->acct_session_id) {
 		os_snprintf(buf, sizeof(buf), "%016llX",

@@ -1377,6 +1377,31 @@ radius_msg_get_cisco_keys(struct radius_msg *msg, struct radius_msg *sent_msg,
 	return keys;
 }
 
+int
+radius_msg_get_wispr(struct radius_msg *msg, u32 *bandwidth)
+{
+	int i;
+
+	if (msg == NULL || bandwidth == NULL)
+		return 1;
+
+	for (i = 0; i < 2; i++) {
+		size_t keylen;
+		u8 *key;
+
+		key = radius_msg_get_vendor_attr(msg, RADIUS_VENDOR_ID_WBA,
+						 RADIUS_WISPR_AV_BW_UP + i, &keylen);
+		if (!key)
+			continue;
+
+		if (keylen == 4)
+			bandwidth[i] = ntohl(*((u32 *)key));
+		os_free(key);
+	}
+
+	return 0;
+}
+
 
 int radius_msg_add_mppe_keys(struct radius_msg *msg,
 			     const u8 *req_authenticator,
@@ -1455,8 +1480,8 @@ int radius_msg_add_mppe_keys(struct radius_msg *msg,
 }
 
 
-int radius_msg_add_wfa(struct radius_msg *msg, u8 subtype, const u8 *data,
-		       size_t len)
+static int radius_msg_add_vendor_vsa(struct radius_msg *msg, u32 vendor_id,
+				     u8 subtype, const u8 *data, size_t len)
 {
 	struct radius_attr_hdr *attr;
 	u8 *buf, *pos;
@@ -1467,7 +1492,7 @@ int radius_msg_add_wfa(struct radius_msg *msg, u8 subtype, const u8 *data,
 	if (buf == NULL)
 		return 0;
 	pos = buf;
-	WPA_PUT_BE32(pos, RADIUS_VENDOR_ID_WFA);
+	WPA_PUT_BE32(pos, vendor_id);
 	pos += 4;
 	*pos++ = subtype;
 	*pos++ = 2 + len;
@@ -1479,6 +1504,22 @@ int radius_msg_add_wfa(struct radius_msg *msg, u8 subtype, const u8 *data,
 		return 0;
 
 	return 1;
+}
+
+
+int radius_msg_add_wfa(struct radius_msg *msg, u8 subtype, const u8 *data,
+		       size_t len)
+{
+	return radius_msg_add_vendor_vsa(msg, RADIUS_VENDOR_ID_WFA,
+					 subtype, data, len);
+}
+
+
+int radius_msg_add_wba(struct radius_msg *msg, u8 subtype, const u8 *data,
+		       size_t len)
+{
+	return radius_msg_add_vendor_vsa(msg, RADIUS_VENDOR_ID_WBA,
+					 subtype, data, len);
 }
 
 

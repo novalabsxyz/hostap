@@ -1269,6 +1269,10 @@ struct hostapd_config {
 		wifi_stats_agg_type_t algorithm;
 	} wifi_stats_metrics[WIFI_STATS_METRIC_COUNT];
 #endif /* CONFIG_WIFI_STATS */
+
+#ifdef CONFIG_WBA_QM
+	int wba_qm_enabled;
+#endif /* CONFIG_WBA_QM */
 };
 
 
