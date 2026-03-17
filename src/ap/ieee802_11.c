@@ -7579,7 +7579,7 @@ update_pmksa_entry:
 			if (!next)
 				goto skip_update;
 			os_memcpy(next->pmkid, pmkid_next, PMKID_LEN);
-			os_memcpy(next->spa, sta->addr, PMKID_LEN);
+			os_memcpy(next->spa, sta->addr, ETH_ALEN);
 			next->vlan_desc = NULL;
 			next->identity = NULL;
 			next->dpp_pkhash = NULL;
