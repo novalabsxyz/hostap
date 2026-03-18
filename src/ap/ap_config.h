@@ -1252,6 +1252,9 @@ struct hostapd_config {
 
 	/* Set I2R LMR policy to allow LMR response from ISTA */
 	bool i2r_lmr_policy;
+
+	/* Disable MCS15 Subfield in EHT operation element */
+	bool disable_mcs15_rx;
 };
 
 
