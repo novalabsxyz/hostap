@@ -1529,10 +1529,12 @@ int wpa_pasn_auth_rx(struct pasn_data *pasn, const u8 *data, size_t len,
 		(const struct ieee80211_mgmt *) data;
 	struct wpabuf *frame = NULL;
 	int ret;
-	u16 status = le_to_host16(mgmt->u.auth.status_code);
+	u16 status;
 
 	if (!is_pasn_auth_frame(pasn, mgmt, len, true))
 		return -2;
+
+	status = le_to_host16(mgmt->u.auth.status_code);
 
 	ret = wpas_parse_pasn_frame(pasn, le_to_host16(mgmt->u.auth.auth_alg),
 				    le_to_host16(mgmt->u.auth.auth_transaction),
