@@ -677,11 +677,13 @@ static int wpa_auth_pmksa_clear_cb(struct wpa_state_machine *sm, void *ctx)
 
 
 
+#ifdef CONFIG_IEEE80211BE
 static int wpa_auth_pmksa_clear_auth_cb(struct wpa_authenticator *wpa_auth,
 					void *ctx)
 {
 	return wpa_auth_for_each_sta(wpa_auth, wpa_auth_pmksa_clear_cb, ctx);
 }
+#endif /* CONFIG_IEEE80211BE */
 
 
 static void wpa_auth_pmksa_free_cb(struct rsn_pmksa_cache_entry *entry,
