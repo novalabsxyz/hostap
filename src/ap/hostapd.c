@@ -263,6 +263,18 @@ static int hostapd_iface_conf_changed(struct hostapd_config *newconf,
 }
 
 
+int hostapd_iface_num_sta(struct hostapd_iface *iface)
+{
+	int num_sta = 0;
+	int idx;
+
+	for (idx = 0; idx < iface->num_bss; idx++)
+		num_sta += iface->bss[idx]->num_sta;
+
+	return num_sta;
+}
+
+
 int hostapd_reload_config(struct hostapd_iface *iface)
 {
 	struct hapd_interfaces *interfaces = iface->interfaces;

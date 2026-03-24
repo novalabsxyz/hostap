@@ -1276,6 +1276,11 @@ struct hostapd_config {
 	int wba_qm_min_rssi;
 	int wba_qm_min_rssi_configured;
 	unsigned int wba_qm_chan_util_acc;
+#define WBA_QM_AVG_NONE        0
+#define WBA_QM_AVG_LINEAR      1
+#define WBA_QM_AVG_EXPONENTIAL 2
+	int wba_qm_sta_count_avg_type;
+	int wba_qm_sta_count_avg_param;
 #endif /* CONFIG_WBA_QM */
 };
 
