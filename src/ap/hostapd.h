@@ -772,6 +772,7 @@ struct hostapd_iface {
 };
 
 /* hostapd.c */
+int hostapd_iface_num_sta(struct hostapd_iface *iface);
 int hostapd_for_each_interface(struct hapd_interfaces *interfaces,
 			       int (*cb)(struct hostapd_iface *iface,
 					 void *ctx), void *ctx);
