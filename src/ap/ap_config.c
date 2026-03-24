@@ -327,6 +327,8 @@ struct hostapd_config * hostapd_config_defaults(void)
 	conf->wba_qm_chan_util_acc = 60;
 	conf->wba_qm_sta_count_avg_type = WBA_QM_AVG_LINEAR;
 	conf->wba_qm_sta_count_avg_param = 60;
+	conf->wba_qm_noise_avg_type = WBA_QM_AVG_LINEAR;
+	conf->wba_qm_noise_avg_param = 60;
 #endif /* CONFIG_WBA_QM */
 
 	return conf;

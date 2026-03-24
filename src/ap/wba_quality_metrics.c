@@ -36,6 +36,9 @@ struct wba_qm_ema {
 };
 
 
+/* noise stored as offset binary (nf + 128) so signed dBm maps to u32 */
+#define WBA_QM_NOISE_OFFSET 128
+
 struct wba_qm_ctx {
 	struct hostapd_iface *iface;
 	int timer_active;
@@ -51,6 +54,9 @@ struct wba_qm_ctx {
 
 	struct wba_qm_circular sta_buf;
 	struct wba_qm_ema sta_ema;
+
+	struct wba_qm_circular noise_buf;
+	struct wba_qm_ema noise_ema;
 };
 
 
@@ -321,6 +327,30 @@ static u32 wba_qm_get_sta_count(struct wba_qm_ctx *ctx,
 }
 
 
+/* --- noise averaging --- */
+
+static int wba_qm_get_noise(struct wba_qm_ctx *ctx,
+			     struct hostapd_config *conf)
+{
+	int instant = (int) ctx->iface->lowest_nf;
+
+	switch (conf->wba_qm_noise_avg_type) {
+	case WBA_QM_AVG_LINEAR:
+		if (ctx->noise_buf.count > 0)
+			return (int) wba_qm_circular_average(&ctx->noise_buf) -
+				WBA_QM_NOISE_OFFSET;
+		return instant;
+	case WBA_QM_AVG_EXPONENTIAL:
+		if (ctx->noise_ema.initialized)
+			return (int) wba_qm_ema_get(&ctx->noise_ema) -
+				WBA_QM_NOISE_OFFSET;
+		return instant;
+	default:
+		return instant;
+	}
+}
+
+
 /* --- periodic sampling --- */
 
 static void wba_qm_sample(struct wba_qm_ctx *ctx)
@@ -353,6 +383,31 @@ static void wba_qm_sample(struct wba_qm_ctx *ctx)
 		break;
 	default:
 		break;
+	}
+
+	if (ctx->iface->chans_surveyed > 0) {
+		u32 nf_offset = (u32)((int) ctx->iface->lowest_nf +
+				      WBA_QM_NOISE_OFFSET);
+
+		switch (conf->wba_qm_noise_avg_type) {
+		case WBA_QM_AVG_LINEAR:
+			wba_qm_circular_push(&ctx->noise_buf, nf_offset);
+			wpa_printf(MSG_MSGDUMP,
+				   "wba_qm: sampled noise=%d buf_count=%zu",
+				   ctx->iface->lowest_nf,
+				   ctx->noise_buf.count);
+			break;
+		case WBA_QM_AVG_EXPONENTIAL:
+			wba_qm_ema_update(&ctx->noise_ema, nf_offset,
+					   conf->wba_qm_noise_avg_param);
+			wpa_printf(MSG_MSGDUMP,
+				   "wba_qm: sampled noise=%d ema=%d",
+				   ctx->iface->lowest_nf,
+				   wba_qm_get_noise(ctx, conf));
+			break;
+		default:
+			break;
+		}
 	}
 }
 
@@ -388,13 +443,6 @@ static void wba_qm_timer_cb(void *eloop_data, void *user_data)
 
 /* --- lifecycle --- */
 
-static int wba_qm_needs_timer(struct hostapd_config *conf)
-{
-	return conf->wba_qm_chan_util_acc > 0 ||
-	       conf->wba_qm_sta_count_avg_type != WBA_QM_AVG_NONE;
-}
-
-
 struct wba_qm_ctx * wba_qm_init(struct hostapd_iface *iface)
 {
 	struct wba_qm_ctx *ctx;
@@ -418,8 +466,17 @@ void wba_qm_deinit(struct wba_qm_ctx *ctx)
 	wba_qm_stop_timer(ctx);
 	os_free(ctx->cu_buf);
 	wba_qm_circular_free(&ctx->sta_buf);
+	wba_qm_circular_free(&ctx->noise_buf);
 	wpa_printf(MSG_DEBUG, "wba_qm: deinitialized");
 	os_free(ctx);
+}
+
+
+static int wba_qm_needs_timer(struct hostapd_config *conf)
+{
+	return conf->wba_qm_chan_util_acc > 0 ||
+	       conf->wba_qm_sta_count_avg_type != WBA_QM_AVG_NONE ||
+	       conf->wba_qm_noise_avg_type != WBA_QM_AVG_NONE;
 }
 
 
@@ -462,6 +519,25 @@ int wba_qm_start_timer(struct wba_qm_ctx *ctx)
 	} else {
 		wba_qm_circular_free(&ctx->sta_buf);
 		wba_qm_ema_reset(&ctx->sta_ema);
+	}
+
+	/* noise averaging */
+	if (conf->wba_qm_noise_avg_type == WBA_QM_AVG_LINEAR) {
+		wba_qm_ema_reset(&ctx->noise_ema);
+		if (wba_qm_circular_alloc(&ctx->noise_buf,
+				      conf->wba_qm_noise_avg_param,
+				      conf->wba_qm_interval) != 0) {
+			wpa_printf(MSG_ERROR,
+				   "wba_qm: failed to allocate noise circular buffer");
+			return -1;
+		}
+	} else if (conf->wba_qm_noise_avg_type ==
+		   WBA_QM_AVG_EXPONENTIAL) {
+		wba_qm_circular_free(&ctx->noise_buf);
+		wba_qm_ema_reset(&ctx->noise_ema);
+	} else {
+		wba_qm_circular_free(&ctx->noise_buf);
+		wba_qm_ema_reset(&ctx->noise_ema);
 	}
 
 	if (!wba_qm_needs_timer(conf)) {
@@ -627,6 +703,38 @@ void wba_qm_add_radius_attrs(struct wba_qm_ctx *ctx,
 				   "wba_qm: added STA-Count-exp-avg=%d",
 				   conf->wba_qm_sta_count_avg_param);
 	}
+
+	/* WBA-Noise (sub-type 109) — optionally averaged */
+	if (ctx->iface->chans_surveyed > 0) {
+		int noise = wba_qm_get_noise(ctx, conf);
+
+		if (wba_qm_add_vsa_u32(msg, RADIUS_WBA_ATTR_NOISE,
+					(u32) noise, "Noise") == 0)
+			wpa_printf(MSG_DEBUG,
+				   "wba_qm: added Noise=%d", noise);
+	}
+
+	/* WBA-Noise-lin-avg (110) or Noise-exp-avg (111) */
+	if (ctx->iface->chans_surveyed > 0) {
+		if (conf->wba_qm_noise_avg_type == WBA_QM_AVG_LINEAR) {
+			if (wba_qm_add_vsa_u32(
+				    msg, RADIUS_WBA_ATTR_NOISE_LIN_AVG,
+				    (u32) conf->wba_qm_noise_avg_param,
+				    "Noise-lin-avg") == 0)
+				wpa_printf(MSG_DEBUG,
+					   "wba_qm: added Noise-lin-avg=%d",
+					   conf->wba_qm_noise_avg_param);
+		} else if (conf->wba_qm_noise_avg_type ==
+			   WBA_QM_AVG_EXPONENTIAL) {
+			if (wba_qm_add_vsa_u32(
+				    msg, RADIUS_WBA_ATTR_NOISE_EXP_AVG,
+				    (u32) conf->wba_qm_noise_avg_param,
+				    "Noise-exp-avg") == 0)
+				wpa_printf(MSG_DEBUG,
+					   "wba_qm: added Noise-exp-avg=%d",
+					   conf->wba_qm_noise_avg_param);
+		}
+	}
 }
 
 
@@ -663,9 +771,34 @@ int wba_qm_get_status(struct wba_qm_ctx *ctx, char *buf, size_t buflen)
 	remaining -= written;
 
 	if (ctx->iface->chans_surveyed > 0) {
+		int noise = wba_qm_get_noise(ctx, conf);
+
 		written = os_snprintf(pos, remaining,
-				      "noise_floor=%d\n",
-				      ctx->iface->lowest_nf);
+				      "noise_floor=%d\n"
+				      "noise=%d\n"
+				      "wba_qm_noise_avg=%s",
+				      ctx->iface->lowest_nf,
+				      noise,
+				      conf->wba_qm_noise_avg_type ==
+					WBA_QM_AVG_LINEAR ? "linear" :
+				      conf->wba_qm_noise_avg_type ==
+					WBA_QM_AVG_EXPONENTIAL ?
+					"exponential" : "none");
+		if (os_snprintf_error(remaining, written))
+			return -1;
+		pos += written;
+		remaining -= written;
+
+		if (conf->wba_qm_noise_avg_type != WBA_QM_AVG_NONE) {
+			written = os_snprintf(pos, remaining, " %d",
+					      conf->wba_qm_noise_avg_param);
+			if (os_snprintf_error(remaining, written))
+				return -1;
+			pos += written;
+			remaining -= written;
+		}
+
+		written = os_snprintf(pos, remaining, "\n");
 		if (os_snprintf_error(remaining, written))
 			return -1;
 		pos += written;

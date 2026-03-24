@@ -1325,6 +1325,38 @@ static int hostapd_ctrl_iface_set(struct hostapd_data *hapd, char *cmd)
 				wpa_printf(MSG_WARNING,
 					   "wba_qm: failed to restart timer after avg change");
 		}
+	} else if (os_strcasecmp(cmd, "wba_qm_noise_avg") == 0) {
+		if (os_strcmp(value, "none") == 0) {
+			hapd->iconf->wba_qm_noise_avg_type =
+				WBA_QM_AVG_NONE;
+			hapd->iconf->wba_qm_noise_avg_param = 0;
+		} else if (os_strncmp(value, "linear ", 7) == 0) {
+			char *endptr;
+			unsigned long pval = strtoul(value + 7, &endptr, 10);
+			if (endptr == value + 7 || *endptr != '\0' ||
+			    pval < 1 || pval > 3600)
+				return -1;
+			hapd->iconf->wba_qm_noise_avg_type =
+				WBA_QM_AVG_LINEAR;
+			hapd->iconf->wba_qm_noise_avg_param = pval;
+		} else if (os_strncmp(value, "exponential ", 12) == 0) {
+			char *endptr;
+			unsigned long pval = strtoul(value + 12, &endptr, 10);
+			if (endptr == value + 12 || *endptr != '\0' ||
+			    pval < 1 || pval > 20)
+				return -1;
+			hapd->iconf->wba_qm_noise_avg_type =
+				WBA_QM_AVG_EXPONENTIAL;
+			hapd->iconf->wba_qm_noise_avg_param = pval;
+		} else {
+			return -1;
+		}
+		if (hapd->iface->wba_qm) {
+			wba_qm_stop_timer(hapd->iface->wba_qm);
+			if (wba_qm_start_timer(hapd->iface->wba_qm) != 0)
+				wpa_printf(MSG_WARNING,
+					   "wba_qm: failed to restart timer after noise avg change");
+		}
 #endif /* CONFIG_WBA_QM */
 #ifdef CONFIG_DPP
 	} else if (os_strcasecmp(cmd, "dpp_configurator_params") == 0) {
