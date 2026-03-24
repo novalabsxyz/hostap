@@ -521,6 +521,10 @@ void ap_free_sta(struct hostapd_data *hapd, struct sta_info *sta)
 	ap_free_sta_pasn(hapd, sta);
 #endif /* CONFIG_PASN */
 
+#ifdef CONFIG_WIFI_STATS
+	sta->wifi_stats = NULL;
+#endif /* CONFIG_WIFI_STATS */
+
 	os_free(sta->ifname_wds);
 
 #ifdef CONFIG_IEEE80211BE

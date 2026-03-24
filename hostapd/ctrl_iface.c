@@ -66,6 +66,9 @@
 #include "ap/dpp_hostapd.h"
 #include "ap/dfs.h"
 #include "ap/nan_usd_ap.h"
+#ifdef CONFIG_WIFI_STATS
+#include "wifi_stats/wifi_stats.h"
+#endif /* CONFIG_WIFI_STATS */
 #include "wps/wps_defs.h"
 #include "wps/wps.h"
 #include "fst/fst_ctrl_iface.h"
@@ -1330,6 +1333,215 @@ static int hostapd_ctrl_iface_set(struct hostapd_data *hapd, char *cmd)
 	return ret;
 }
 
+
+#ifdef CONFIG_WIFI_STATS
+static int hostapd_ctrl_iface_wifi_stats_set_interval(struct hostapd_data *hapd,
+						      char *cmd)
+{
+	char *endptr;
+	unsigned long val;
+
+	if (!hapd->iface->wifi_stats) {
+		wpa_printf(MSG_ERROR, "wifi_stats not initialized");
+		return -1;
+	}
+
+	val = strtoul(cmd, &endptr, 10);
+	if (endptr == cmd || *endptr != '\0' || val == 0 || val > 3600) {
+		wpa_printf(MSG_ERROR, "Invalid wifi_stats interval: %s (must be 1-3600)", cmd);
+		return -1;
+	}
+
+	if (wifi_stats_set_interval(hapd->iface->wifi_stats,
+				    (unsigned int)val) < 0) {
+		wpa_printf(MSG_ERROR, "Failed to set wifi_stats interval");
+		return -1;
+	}
+
+	hapd->iconf->wifi_stats_interval = (unsigned int)val;
+
+	return 0;
+}
+
+static int hostapd_ctrl_iface_wifi_stats_get_interval(struct hostapd_data *hapd,
+						      char *buf, size_t buflen)
+{
+	int ret;
+
+	if (!hapd->iface->wifi_stats)
+		return -1;
+
+	ret = os_snprintf(buf, buflen, "%u\n",
+			  wifi_stats_get_interval(hapd->iface->wifi_stats));
+	if (os_snprintf_error(buflen, ret))
+		return -1;
+	return ret;
+}
+
+static int hostapd_ctrl_iface_wifi_stats_set_window(struct hostapd_data *hapd,
+						    char *cmd)
+{
+	char *endptr;
+	unsigned long val;
+
+	if (!hapd->iface->wifi_stats) {
+		wpa_printf(MSG_ERROR, "wifi_stats not initialized");
+		return -1;
+	}
+
+	val = strtoul(cmd, &endptr, 10);
+	if (endptr == cmd || *endptr != '\0' || val < 1 || val > 3600) {
+		wpa_printf(MSG_ERROR, "Invalid wifi_stats window: %s (must be 1-3600)", cmd);
+		return -1;
+	}
+
+	if (wifi_stats_set_window(hapd->iface->wifi_stats,
+				  (unsigned int)val) < 0) {
+		wpa_printf(MSG_ERROR, "Failed to set wifi_stats window");
+		return -1;
+	}
+
+	hapd->iconf->wifi_stats_wba_window = (unsigned int)val;
+
+	return 0;
+}
+
+static int hostapd_ctrl_iface_wifi_stats_get_window(struct hostapd_data *hapd,
+						    char *buf, size_t buflen)
+{
+	int ret;
+
+	if (!hapd->iface->wifi_stats)
+		return -1;
+
+	ret = os_snprintf(buf, buflen, "%u\n",
+			  wifi_stats_get_window(hapd->iface->wifi_stats));
+	if (os_snprintf_error(buflen, ret))
+		return -1;
+	return ret;
+}
+
+static int hostapd_ctrl_iface_wifi_stats_set_metric(struct hostapd_data *hapd,
+						    char *cmd)
+{
+	char *pos;
+	wifi_stats_metric_type_t metric;
+	wifi_stats_agg_type_t algorithm;
+
+	if (!hapd->iface->wifi_stats) {
+		wpa_printf(MSG_ERROR, "wifi_stats not initialized");
+		return -1;
+	}
+
+	pos = os_strchr(cmd, ' ');
+	if (!pos)
+		return -1;
+	*pos++ = '\0';
+
+	metric = wifi_stats_metric_type_from_str(cmd);
+	if (metric >= WIFI_STATS_METRIC_COUNT) {
+		wpa_printf(MSG_ERROR, "Unknown metric: %s", cmd);
+		return -1;
+	}
+
+	algorithm = wifi_stats_agg_type_from_str(pos);
+	if (algorithm >= WIFI_STATS_AGG_COUNT) {
+		wpa_printf(MSG_ERROR, "Unknown algorithm: %s", pos);
+		return -1;
+	}
+
+	return wifi_stats_set_metric_config(hapd->iface->wifi_stats,
+					    metric, algorithm);
+}
+
+static int hostapd_ctrl_iface_wifi_stats_get_metric(struct hostapd_data *hapd,
+						    char *cmd, char *buf,
+						    size_t buflen)
+{
+	wifi_stats_metric_type_t metric;
+	int ret;
+
+	if (!hapd->iface->wifi_stats)
+		return -1;
+
+	metric = wifi_stats_metric_type_from_str(cmd);
+	if (metric >= WIFI_STATS_METRIC_COUNT)
+		return -1;
+
+	ret = os_snprintf(buf, buflen, "%s\n",
+			  wifi_stats_agg_type_to_str(
+				  wifi_stats_get_metric_config(
+					  hapd->iface->wifi_stats, metric)));
+	if (os_snprintf_error(buflen, ret))
+		return -1;
+	return ret;
+}
+
+static int hostapd_ctrl_iface_wifi_stats_status(struct hostapd_data *hapd,
+						char *buf, size_t buflen)
+{
+	char *pos = buf;
+	size_t remaining = buflen;
+	int written;
+	int i;
+
+	if (!hapd->iface->wifi_stats)
+		return -1;
+
+	written = os_snprintf(pos, remaining, "interval=%u\nwindow=%u\nwba_enabled=%d\n",
+			      wifi_stats_get_interval(hapd->iface->wifi_stats),
+			      wifi_stats_get_window(hapd->iface->wifi_stats),
+			      hapd->iconf->wifi_stats_wba_enabled);
+	if (os_snprintf_error(remaining, written))
+		return -1;
+	pos += written;
+	remaining -= written;
+
+	for (i = 0; i < WIFI_STATS_METRIC_COUNT; i++) {
+		written = os_snprintf(pos, remaining, "%s=%s\n",
+				      wifi_stats_metric_type_to_str(i),
+				      wifi_stats_agg_type_to_str(
+					      wifi_stats_get_metric_config(
+						      hapd->iface->wifi_stats, i)));
+		if (os_snprintf_error(remaining, written))
+			return -1;
+		pos += written;
+		remaining -= written;
+	}
+
+	return pos - buf;
+}
+
+static int hostapd_ctrl_iface_wifi_stats_connect_info(struct hostapd_data *hapd,
+						      char *cmd, char *buf,
+						      size_t buflen)
+{
+	u8 addr[ETH_ALEN];
+	char conn_info[WIFI_STATS_MAX_CONN_INFO_LEN + 1];
+	struct sta_info *sta;
+	int written;
+
+	if (!hapd->iface->wifi_stats)
+		return -1;
+
+	if (hwaddr_aton(cmd, addr)) {
+		wpa_printf(MSG_ERROR, "wifi_stats: Invalid MAC address: %s",
+			   cmd);
+		return -1;
+	}
+
+	sta = ap_get_sta(hapd, addr);
+	if (wifi_stats_format_connection_info(hapd->iface->wifi_stats, hapd,
+					      sta, addr, conn_info,
+					      sizeof(conn_info)) < 0)
+		return -1;
+
+	written = os_snprintf(buf, buflen, "%s\n", conn_info);
+	if (os_snprintf_error(buflen, written))
+		return -1;
+	return written;
+}
+#endif /* CONFIG_WIFI_STATS */
 
 static int hostapd_ctrl_iface_get(struct hostapd_data *hapd, char *cmd,
 				  char *buf, size_t buflen)
@@ -4571,6 +4783,27 @@ static int hostapd_ctrl_iface_receive_process(struct hostapd_data *hapd,
 			reply_len = -1;
 #endif /* CONFIG_PROCESS_COORDINATION */
 #endif /* CONFIG_TESTING_OPTIONS */
+#ifdef CONFIG_WIFI_STATS
+	} else if (os_strncmp(buf, "WIFI_STATS_SET_INTERVAL ", 24) == 0) {
+		if (hostapd_ctrl_iface_wifi_stats_set_interval(hapd, buf + 24) < 0)
+			reply_len = -1;
+	} else if (os_strcmp(buf, "WIFI_STATS_GET_INTERVAL") == 0) {
+		reply_len = hostapd_ctrl_iface_wifi_stats_get_interval(hapd, reply, reply_size);
+	} else if (os_strncmp(buf, "WIFI_STATS_SET_WINDOW ", 22) == 0) {
+		if (hostapd_ctrl_iface_wifi_stats_set_window(hapd, buf + 22) < 0)
+			reply_len = -1;
+	} else if (os_strcmp(buf, "WIFI_STATS_GET_WINDOW") == 0) {
+		reply_len = hostapd_ctrl_iface_wifi_stats_get_window(hapd, reply, reply_size);
+	} else if (os_strncmp(buf, "WIFI_STATS_SET_METRIC ", 22) == 0) {
+		if (hostapd_ctrl_iface_wifi_stats_set_metric(hapd, buf + 22) < 0)
+			reply_len = -1;
+	} else if (os_strncmp(buf, "WIFI_STATS_GET_METRIC ", 22) == 0) {
+		reply_len = hostapd_ctrl_iface_wifi_stats_get_metric(hapd, buf + 22, reply, reply_size);
+	} else if (os_strcmp(buf, "WIFI_STATS_STATUS") == 0) {
+		reply_len = hostapd_ctrl_iface_wifi_stats_status(hapd, reply, reply_size);
+	} else if (os_strncmp(buf, "WIFI_STATS_CONNECT_INFO ", 24) == 0) {
+		reply_len = hostapd_ctrl_iface_wifi_stats_connect_info(hapd, buf + 24, reply, reply_size);
+#endif /* CONFIG_WIFI_STATS */
 	} else {
 		os_memcpy(reply, "UNKNOWN COMMAND\n", 16);
 		reply_len = 16;

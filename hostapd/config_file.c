@@ -24,6 +24,9 @@
 #include "ap/wpa_auth.h"
 #include "ap/ap_config.h"
 #include "config_file.h"
+#ifdef CONFIG_WIFI_STATS
+#include "wifi_stats/wifi_stats.h"
+#endif /* CONFIG_WIFI_STATS */
 
 
 #ifndef CONFIG_NO_VLAN
@@ -2371,6 +2374,87 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 	} else if (os_strcmp(buf, "config_id") == 0) {
 		os_free(bss->config_id);
 		bss->config_id = os_strdup(pos);
+#ifdef CONFIG_WIFI_STATS
+	} else if (os_strcmp(buf, "wifi_stats_interval") == 0) {
+		char *endptr;
+		unsigned long val = strtoul(pos, &endptr, 10);
+		if (endptr == pos || *endptr != '\0' ||
+		    val == 0 || val > 3600) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wifi_stats_interval '%s' (must be 1-3600)",
+				   line, pos);
+			return 1;
+		}
+		conf->wifi_stats_interval = (unsigned int)val;
+	} else if (os_strcmp(buf, "wifi_stats_wba_window") == 0) {
+		char *endptr;
+		unsigned long val = strtoul(pos, &endptr, 10);
+		if (endptr == pos || *endptr != '\0' ||
+		    val < 1 || val > 3600) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wifi_stats_wba_window '%s' (must be 1-3600 seconds)",
+				   line, pos);
+			return 1;
+		}
+		conf->wifi_stats_wba_window = (unsigned int)val;
+	} else if (os_strcmp(buf, "wifi_stats_wba_enabled") == 0) {
+		char *endptr;
+		long val = strtol(pos, &endptr, 10);
+		if (endptr == pos || *endptr != '\0' ||
+		    (val != 0 && val != 1)) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wifi_stats_wba_enabled '%s' (must be 0 or 1)",
+				   line, pos);
+			return 1;
+		}
+		conf->wifi_stats_wba_enabled = val;
+	} else if (os_strncmp(buf, "wifi_stats_metric_", 18) == 0) {
+		const char *metric_name = buf + 18;
+		wifi_stats_metric_type_t metric_idx;
+		wifi_stats_agg_type_t algorithm;
+
+		metric_idx = wifi_stats_metric_type_from_config_str(metric_name);
+		if (metric_idx >= WIFI_STATS_METRIC_COUNT) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Unknown wifi_stats metric '%s'",
+				   line, metric_name);
+			return 1;
+		}
+
+		algorithm = wifi_stats_agg_type_from_str(pos);
+		if (algorithm >= WIFI_STATS_AGG_COUNT) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Unknown algorithm '%s'",
+				   line, pos);
+			return 1;
+		}
+
+		if (algorithm != WIFI_STATS_AGG_NONE) {
+			if (algorithm == WIFI_STATS_AGG_ACC &&
+			    metric_idx != WIFI_STATS_METRIC_FRAME_LOSS &&
+			    metric_idx != WIFI_STATS_METRIC_FRAME_RETRY) {
+				wpa_printf(MSG_ERROR,
+					   "Line %d: ACC algorithm only valid for frameloss/frameretry",
+					   line);
+				return 1;
+			}
+			if (algorithm != WIFI_STATS_AGG_ACC &&
+			    (metric_idx == WIFI_STATS_METRIC_FRAME_LOSS ||
+			     metric_idx == WIFI_STATS_METRIC_FRAME_RETRY)) {
+				wpa_printf(MSG_ERROR,
+					   "Line %d: frameloss/frameretry require ACC or NONE algorithm",
+					   line);
+				return 1;
+			}
+		}
+
+		conf->wifi_stats_metrics[metric_idx].configured = 1;
+		conf->wifi_stats_metrics[metric_idx].algorithm = algorithm;
+
+		wpa_printf(MSG_DEBUG,
+			   "wifi_stats: Configured metric=%s algorithm=%s",
+			   metric_name, pos);
+#endif /* CONFIG_WIFI_STATS */
 	} else if (os_strcmp(buf, "country_code") == 0) {
 		if (pos[0] < 'A' || pos[0] > 'Z' ||
 		    pos[1] < 'A' || pos[1] > 'Z') {
