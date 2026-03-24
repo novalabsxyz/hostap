@@ -1269,6 +1269,21 @@ struct hostapd_config {
 		wifi_stats_agg_type_t algorithm;
 	} wifi_stats_metrics[WIFI_STATS_METRIC_COUNT];
 #endif /* CONFIG_WIFI_STATS */
+
+#ifdef CONFIG_WBA_QM
+	int wba_qm_enabled;
+	int wba_qm_interval;
+	int wba_qm_min_rssi;
+	int wba_qm_min_rssi_configured;
+	unsigned int wba_qm_chan_util_acc;
+#define WBA_QM_AVG_NONE        0
+#define WBA_QM_AVG_LINEAR      1
+#define WBA_QM_AVG_EXPONENTIAL 2
+	int wba_qm_sta_count_avg_type;
+	int wba_qm_sta_count_avg_param;
+	int wba_qm_noise_avg_type;
+	int wba_qm_noise_avg_param;
+#endif /* CONFIG_WBA_QM */
 };
 
 

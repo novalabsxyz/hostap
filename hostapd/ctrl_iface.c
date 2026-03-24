@@ -69,6 +69,9 @@
 #ifdef CONFIG_WIFI_STATS
 #include "wifi_stats/wifi_stats.h"
 #endif /* CONFIG_WIFI_STATS */
+#ifdef CONFIG_WBA_QM
+#include "ap/wba_quality_metrics.h"
+#endif /* CONFIG_WBA_QM */
 #include "wps/wps_defs.h"
 #include "wps/wps.h"
 #include "fst/fst_ctrl_iface.h"
@@ -1260,6 +1263,101 @@ static int hostapd_ctrl_iface_set(struct hostapd_data *hapd, char *cmd)
 		 * disallowing station logic.
 		 */
 #endif /* CONFIG_MBO */
+#ifdef CONFIG_WBA_QM
+	} else if (os_strcasecmp(cmd, "wba_qm_enabled") == 0) {
+		char *endptr;
+		long val = strtol(value, &endptr, 10);
+		if (endptr == value || *endptr != '\0' ||
+		    (val != 0 && val != 1))
+			return -1;
+		hapd->iconf->wba_qm_enabled = val;
+		if (val && !hapd->iface->wba_qm) {
+			hapd->iface->wba_qm = wba_qm_init(hapd->iface);
+			if (!hapd->iface->wba_qm)
+				return -1;
+			wba_qm_start_timer(hapd->iface->wba_qm);
+		} else if (!val && hapd->iface->wba_qm) {
+			wba_qm_deinit(hapd->iface->wba_qm);
+			hapd->iface->wba_qm = NULL;
+		}
+	} else if (os_strcasecmp(cmd, "wba_qm_interval") == 0) {
+		char *endptr;
+		unsigned long val = strtoul(value, &endptr, 10);
+		if (endptr == value || *endptr != '\0' ||
+		    val < 1 || val > 3600)
+			return -1;
+		hapd->iconf->wba_qm_interval = val;
+		if (hapd->iface->wba_qm) {
+			wba_qm_stop_timer(hapd->iface->wba_qm);
+			if (wba_qm_start_timer(hapd->iface->wba_qm) != 0)
+				wpa_printf(MSG_WARNING,
+					   "wba_qm: failed to restart timer after interval change");
+		}
+	} else if (os_strcasecmp(cmd, "wba_qm_sta_count_avg") == 0) {
+		if (os_strcmp(value, "none") == 0) {
+			hapd->iconf->wba_qm_sta_count_avg_type =
+				WBA_QM_AVG_NONE;
+			hapd->iconf->wba_qm_sta_count_avg_param = 0;
+		} else if (os_strncmp(value, "linear ", 7) == 0) {
+			char *endptr;
+			unsigned long pval = strtoul(value + 7, &endptr, 10);
+			if (endptr == value + 7 || *endptr != '\0' ||
+			    pval < 1 || pval > 3600)
+				return -1;
+			hapd->iconf->wba_qm_sta_count_avg_type =
+				WBA_QM_AVG_LINEAR;
+			hapd->iconf->wba_qm_sta_count_avg_param = pval;
+		} else if (os_strncmp(value, "exponential ", 12) == 0) {
+			char *endptr;
+			unsigned long pval = strtoul(value + 12, &endptr, 10);
+			if (endptr == value + 12 || *endptr != '\0' ||
+			    pval < 1 || pval > 20)
+				return -1;
+			hapd->iconf->wba_qm_sta_count_avg_type =
+				WBA_QM_AVG_EXPONENTIAL;
+			hapd->iconf->wba_qm_sta_count_avg_param = pval;
+		} else {
+			return -1;
+		}
+		if (hapd->iface->wba_qm) {
+			wba_qm_stop_timer(hapd->iface->wba_qm);
+			if (wba_qm_start_timer(hapd->iface->wba_qm) != 0)
+				wpa_printf(MSG_WARNING,
+					   "wba_qm: failed to restart timer after avg change");
+		}
+	} else if (os_strcasecmp(cmd, "wba_qm_noise_avg") == 0) {
+		if (os_strcmp(value, "none") == 0) {
+			hapd->iconf->wba_qm_noise_avg_type =
+				WBA_QM_AVG_NONE;
+			hapd->iconf->wba_qm_noise_avg_param = 0;
+		} else if (os_strncmp(value, "linear ", 7) == 0) {
+			char *endptr;
+			unsigned long pval = strtoul(value + 7, &endptr, 10);
+			if (endptr == value + 7 || *endptr != '\0' ||
+			    pval < 1 || pval > 3600)
+				return -1;
+			hapd->iconf->wba_qm_noise_avg_type =
+				WBA_QM_AVG_LINEAR;
+			hapd->iconf->wba_qm_noise_avg_param = pval;
+		} else if (os_strncmp(value, "exponential ", 12) == 0) {
+			char *endptr;
+			unsigned long pval = strtoul(value + 12, &endptr, 10);
+			if (endptr == value + 12 || *endptr != '\0' ||
+			    pval < 1 || pval > 20)
+				return -1;
+			hapd->iconf->wba_qm_noise_avg_type =
+				WBA_QM_AVG_EXPONENTIAL;
+			hapd->iconf->wba_qm_noise_avg_param = pval;
+		} else {
+			return -1;
+		}
+		if (hapd->iface->wba_qm) {
+			wba_qm_stop_timer(hapd->iface->wba_qm);
+			if (wba_qm_start_timer(hapd->iface->wba_qm) != 0)
+				wpa_printf(MSG_WARNING,
+					   "wba_qm: failed to restart timer after noise avg change");
+		}
+#endif /* CONFIG_WBA_QM */
 #ifdef CONFIG_DPP
 	} else if (os_strcasecmp(cmd, "dpp_configurator_params") == 0) {
 		os_free(hapd->dpp_configurator_params);
@@ -1542,6 +1640,17 @@ static int hostapd_ctrl_iface_wifi_stats_connect_info(struct hostapd_data *hapd,
 	return written;
 }
 #endif /* CONFIG_WIFI_STATS */
+
+#ifdef CONFIG_WBA_QM
+static int hostapd_ctrl_iface_wba_qm_status(struct hostapd_data *hapd,
+					     char *buf, size_t buflen)
+{
+	if (!hapd->iface->wba_qm)
+		return -1;
+
+	return wba_qm_get_status(hapd->iface->wba_qm, buf, buflen);
+}
+#endif /* CONFIG_WBA_QM */
 
 static int hostapd_ctrl_iface_get(struct hostapd_data *hapd, char *cmd,
 				  char *buf, size_t buflen)
@@ -4804,6 +4913,10 @@ static int hostapd_ctrl_iface_receive_process(struct hostapd_data *hapd,
 	} else if (os_strncmp(buf, "WIFI_STATS_CONNECT_INFO ", 24) == 0) {
 		reply_len = hostapd_ctrl_iface_wifi_stats_connect_info(hapd, buf + 24, reply, reply_size);
 #endif /* CONFIG_WIFI_STATS */
+#ifdef CONFIG_WBA_QM
+	} else if (os_strcmp(buf, "WBA_QM_STATUS") == 0) {
+		reply_len = hostapd_ctrl_iface_wba_qm_status(hapd, reply, reply_size);
+#endif /* CONFIG_WBA_QM */
 	} else {
 		os_memcpy(reply, "UNKNOWN COMMAND\n", 16);
 		reply_len = 16;

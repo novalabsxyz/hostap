@@ -1732,6 +1732,14 @@ static int hostapd_cli_cmd_wifi_stats_connect_info(struct wpa_ctrl *ctrl,
 }
 #endif /* CONFIG_WIFI_STATS */
 
+#ifdef CONFIG_WBA_QM
+static int hostapd_cli_cmd_wba_qm_status(struct wpa_ctrl *ctrl, int argc,
+					  char *argv[])
+{
+	return wpa_ctrl_command(ctrl, "WBA_QM_STATUS");
+}
+#endif /* CONFIG_WBA_QM */
+
 
 struct hostapd_cli_cmd {
 	const char *cmd;
@@ -1988,6 +1996,10 @@ static const struct hostapd_cli_cmd hostapd_cli_commands[] = {
 	  hostapd_complete_stations,
 	  "<addr> = show Connect-Info string for a station" },
 #endif /* CONFIG_WIFI_STATS */
+#ifdef CONFIG_WBA_QM
+	{ "wba_qm_status", hostapd_cli_cmd_wba_qm_status, NULL,
+	  "= show WBA quality metrics status" },
+#endif /* CONFIG_WBA_QM */
 	{ NULL, NULL, NULL, NULL }
 };
 

@@ -426,3 +426,8 @@ CONFIG_DPP2=y
 # WiFi statistics collection with RADIUS Connect-Info support
 # per draft-grayson-connectinfo-07
 #CONFIG_WIFI_STATS=y
+
+# WBA Quality Metrics VSAs per draft-grayson-radius-quality-metrics-01
+# Encodes per-radio metrics (operating class, channel utilization, noise, etc.)
+# as RADIUS Vendor-Specific Attributes using WBA Vendor-ID 14122
+#CONFIG_WBA_QM=y
