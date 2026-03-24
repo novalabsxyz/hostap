@@ -68,12 +68,26 @@ void wba_qm_deinit(struct wba_qm_ctx *ctx)
 }
 
 
+static int wba_qm_add_vsa_u32(struct radius_msg *msg, u8 subtype,
+			       u32 value, const char *name)
+{
+	u8 buf[4];
+
+	WPA_PUT_BE32(buf, value);
+	if (!radius_msg_add_wba(msg, subtype, buf, sizeof(buf))) {
+		wpa_printf(MSG_WARNING, "wba_qm: failed to add %s", name);
+		return -1;
+	}
+	return 0;
+}
+
+
 void wba_qm_add_radius_attrs(struct wba_qm_ctx *ctx,
 			      struct hostapd_data *hapd,
 			      struct radius_msg *msg)
 {
+	struct hostapd_config *conf;
 	u8 op_class, channel;
-	u8 oc_buf[4];
 
 	if (!ctx || !hapd || !msg)
 		return;
@@ -82,15 +96,13 @@ void wba_qm_add_radius_attrs(struct wba_qm_ctx *ctx,
 	    !ctx->iface->conf->wba_qm_enabled)
 		return;
 
+	conf = ctx->iface->conf;
+
 	/* WBA-Wi-Fi-Global-OC (sub-type 105) */
 	if (wba_qm_resolve_oc(ctx, &op_class, &channel) == 0) {
-		/* RADIUS integer: 4 bytes big-endian (RFC 8044) */
-		WPA_PUT_BE32(oc_buf, (u32) op_class);
-		if (!radius_msg_add_wba(msg, RADIUS_WBA_ATTR_WIFI_GLOBAL_OC,
-					oc_buf, sizeof(oc_buf)))
-			wpa_printf(MSG_WARNING,
-				   "wba_qm: failed to add Wi-Fi-Global-OC");
-		else
+		if (wba_qm_add_vsa_u32(msg, RADIUS_WBA_ATTR_WIFI_GLOBAL_OC,
+					(u32) op_class,
+					"Wi-Fi-Global-OC") == 0)
 			wpa_printf(MSG_DEBUG,
 				   "wba_qm: added Wi-Fi-Global-OC op_class=%u channel=%u",
 				   op_class, channel);
@@ -99,11 +111,22 @@ void wba_qm_add_radius_attrs(struct wba_qm_ctx *ctx,
 			   "wba_qm: skipping Wi-Fi-Global-OC, freq=%d unresolvable",
 			   ctx->iface->freq);
 	}
+
+	/* WBA-Min-RSSI (sub-type 104) — static config value */
+	if (conf->wba_qm_min_rssi_configured) {
+		if (wba_qm_add_vsa_u32(msg, RADIUS_WBA_ATTR_MIN_RSSI,
+					(u32) conf->wba_qm_min_rssi,
+					"Min-RSSI") == 0)
+			wpa_printf(MSG_DEBUG,
+				   "wba_qm: added Min-RSSI rssi=%d",
+				   conf->wba_qm_min_rssi);
+	}
 }
 
 
 int wba_qm_get_status(struct wba_qm_ctx *ctx, char *buf, size_t buflen)
 {
+	struct hostapd_config *conf;
 	char *pos = buf;
 	size_t remaining = buflen;
 	int written;
@@ -112,7 +135,8 @@ int wba_qm_get_status(struct wba_qm_ctx *ctx, char *buf, size_t buflen)
 	if (!ctx || !ctx->iface || !buf || buflen == 0)
 		return -1;
 
-	if (!ctx->iface->conf)
+	conf = ctx->iface->conf;
+	if (!conf)
 		return -1;
 
 	wba_qm_resolve_oc(ctx, &op_class, &channel);
@@ -122,12 +146,23 @@ int wba_qm_get_status(struct wba_qm_ctx *ctx, char *buf, size_t buflen)
 			      "freq=%d\n"
 			      "wifi_global_oc=%u\n"
 			      "operating_channel=%u\n",
-			      ctx->iface->conf->wba_qm_enabled,
+			      conf->wba_qm_enabled,
 			      ctx->iface->freq,
 			      op_class, channel);
 	if (os_snprintf_error(remaining, written))
 		return -1;
 	pos += written;
+	remaining -= written;
+
+	if (conf->wba_qm_min_rssi_configured) {
+		written = os_snprintf(pos, remaining,
+				      "min_rssi=%d\n",
+				      conf->wba_qm_min_rssi);
+		if (os_snprintf_error(remaining, written))
+			return -1;
+		pos += written;
+		remaining -= written;
+	}
 
 	return pos - buf;
 }

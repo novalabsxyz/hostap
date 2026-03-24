@@ -2467,6 +2467,18 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 			return 1;
 		}
 		conf->wba_qm_enabled = val;
+	} else if (os_strcmp(buf, "wba_qm_min_rssi") == 0) {
+		char *endptr;
+		long val = strtol(pos, &endptr, 10);
+		if (endptr == pos || *endptr != '\0' ||
+		    val < -128 || val > 0) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wba_qm_min_rssi '%s' (must be -128..0)",
+				   line, pos);
+			return 1;
+		}
+		conf->wba_qm_min_rssi = val;
+		conf->wba_qm_min_rssi_configured = 1;
 #endif /* CONFIG_WBA_QM */
 	} else if (os_strcmp(buf, "country_code") == 0) {
 		if (pos[0] < 'A' || pos[0] > 'Z' ||
