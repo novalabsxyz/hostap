@@ -2535,6 +2535,41 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 				   line, pos);
 			return 1;
 		}
+	} else if (os_strcmp(buf, "wba_qm_noise_avg") == 0) {
+		if (os_strcmp(pos, "none") == 0) {
+			conf->wba_qm_noise_avg_type = WBA_QM_AVG_NONE;
+			conf->wba_qm_noise_avg_param = 0;
+		} else if (os_strncmp(pos, "linear ", 7) == 0) {
+			char *endptr;
+			unsigned long val = strtoul(pos + 7, &endptr, 10);
+			if (endptr == pos + 7 || *endptr != '\0' ||
+			    val < 1 || val > 3600) {
+				wpa_printf(MSG_ERROR,
+					   "Line %d: Invalid wba_qm_noise_avg linear window '%s' (must be 1..3600)",
+					   line, pos + 7);
+				return 1;
+			}
+			conf->wba_qm_noise_avg_type = WBA_QM_AVG_LINEAR;
+			conf->wba_qm_noise_avg_param = val;
+		} else if (os_strncmp(pos, "exponential ", 12) == 0) {
+			char *endptr;
+			unsigned long val = strtoul(pos + 12, &endptr, 10);
+			if (endptr == pos + 12 || *endptr != '\0' ||
+			    val < 1 || val > 20) {
+				wpa_printf(MSG_ERROR,
+					   "Line %d: Invalid wba_qm_noise_avg exponential weight '%s' (must be 1..20)",
+					   line, pos + 12);
+				return 1;
+			}
+			conf->wba_qm_noise_avg_type =
+				WBA_QM_AVG_EXPONENTIAL;
+			conf->wba_qm_noise_avg_param = val;
+		} else {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wba_qm_noise_avg '%s' (must be none|linear <seconds>|exponential <weight>)",
+				   line, pos);
+			return 1;
+		}
 #endif /* CONFIG_WBA_QM */
 	} else if (os_strcmp(buf, "country_code") == 0) {
 		if (pos[0] < 'A' || pos[0] > 'Z' ||

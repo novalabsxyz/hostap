@@ -1281,6 +1281,8 @@ struct hostapd_config {
 #define WBA_QM_AVG_EXPONENTIAL 2
 	int wba_qm_sta_count_avg_type;
 	int wba_qm_sta_count_avg_param;
+	int wba_qm_noise_avg_type;
+	int wba_qm_noise_avg_param;
 #endif /* CONFIG_WBA_QM */
 };
 
