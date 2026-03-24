@@ -16,6 +16,8 @@ struct wba_qm_ctx;
 
 struct wba_qm_ctx * wba_qm_init(struct hostapd_iface *iface);
 void wba_qm_deinit(struct wba_qm_ctx *ctx);
+int wba_qm_start_timer(struct wba_qm_ctx *ctx);
+void wba_qm_stop_timer(struct wba_qm_ctx *ctx);
 void wba_qm_add_radius_attrs(struct wba_qm_ctx *ctx,
 			      struct hostapd_data *hapd,
 			      struct radius_msg *msg);
