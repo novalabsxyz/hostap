@@ -1272,6 +1272,8 @@ struct hostapd_config {
 
 #ifdef CONFIG_WBA_QM
 	int wba_qm_enabled;
+	int wba_qm_min_rssi;
+	int wba_qm_min_rssi_configured;
 #endif /* CONFIG_WBA_QM */
 };
 
