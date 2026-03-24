@@ -3008,6 +3008,9 @@ int hostapd_setup_interface(struct hostapd_iface *iface)
 		if (!iface->wba_qm)
 			wpa_printf(MSG_WARNING,
 				   "wba_qm: failed to allocate context, continuing without quality metrics");
+		else if (wba_qm_start_timer(iface->wba_qm) != 0)
+			wpa_printf(MSG_WARNING,
+				   "wba_qm: failed to start timer");
 	}
 #endif /* CONFIG_WBA_QM */
 

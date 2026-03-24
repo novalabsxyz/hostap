@@ -2479,6 +2479,27 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 		}
 		conf->wba_qm_min_rssi = val;
 		conf->wba_qm_min_rssi_configured = 1;
+	} else if (os_strcmp(buf, "wba_qm_interval") == 0) {
+		char *endptr;
+		unsigned long val = strtoul(pos, &endptr, 10);
+		if (endptr == pos || *endptr != '\0' ||
+		    val < 1 || val > 3600) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wba_qm_interval '%s' (must be 1..3600)",
+				   line, pos);
+			return 1;
+		}
+		conf->wba_qm_interval = val;
+	} else if (os_strcmp(buf, "wba_qm_chan_util_acc") == 0) {
+		char *endptr;
+		unsigned long val = strtoul(pos, &endptr, 10);
+		if (endptr == pos || *endptr != '\0' || val > 3600) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wba_qm_chan_util_acc '%s' (must be 0..3600)",
+				   line, pos);
+			return 1;
+		}
+		conf->wba_qm_chan_util_acc = val;
 #endif /* CONFIG_WBA_QM */
 	} else if (os_strcmp(buf, "country_code") == 0) {
 		if (pos[0] < 'A' || pos[0] > 'Z' ||

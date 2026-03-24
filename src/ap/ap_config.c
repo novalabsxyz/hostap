@@ -323,6 +323,8 @@ struct hostapd_config * hostapd_config_defaults(void)
 
 #ifdef CONFIG_WBA_QM
 	conf->wba_qm_enabled = 1;
+	conf->wba_qm_interval = 10;
+	conf->wba_qm_chan_util_acc = 60;
 #endif /* CONFIG_WBA_QM */
 
 	return conf;

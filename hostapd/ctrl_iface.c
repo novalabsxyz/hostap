@@ -1275,6 +1275,7 @@ static int hostapd_ctrl_iface_set(struct hostapd_data *hapd, char *cmd)
 			hapd->iface->wba_qm = wba_qm_init(hapd->iface);
 			if (!hapd->iface->wba_qm)
 				return -1;
+			wba_qm_start_timer(hapd->iface->wba_qm);
 		} else if (!val && hapd->iface->wba_qm) {
 			wba_qm_deinit(hapd->iface->wba_qm);
 			hapd->iface->wba_qm = NULL;
