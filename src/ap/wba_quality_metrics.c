@@ -112,6 +112,16 @@ void wba_qm_add_radius_attrs(struct wba_qm_ctx *ctx,
 			   ctx->iface->freq);
 	}
 
+	/* WBA-Noise-Floor (sub-type 103) — instantaneous survey data */
+	if (ctx->iface->chans_surveyed > 0) {
+		if (wba_qm_add_vsa_u32(msg, RADIUS_WBA_ATTR_NOISE_FLOOR,
+					(u32)(int) ctx->iface->lowest_nf,
+					"Noise-Floor") == 0)
+			wpa_printf(MSG_DEBUG,
+				   "wba_qm: added Noise-Floor nf=%d",
+				   ctx->iface->lowest_nf);
+	}
+
 	/* WBA-Min-RSSI (sub-type 104) — static config value */
 	if (conf->wba_qm_min_rssi_configured) {
 		if (wba_qm_add_vsa_u32(msg, RADIUS_WBA_ATTR_MIN_RSSI,
@@ -153,6 +163,16 @@ int wba_qm_get_status(struct wba_qm_ctx *ctx, char *buf, size_t buflen)
 		return -1;
 	pos += written;
 	remaining -= written;
+
+	if (ctx->iface->chans_surveyed > 0) {
+		written = os_snprintf(pos, remaining,
+				      "noise_floor=%d\n",
+				      ctx->iface->lowest_nf);
+		if (os_snprintf_error(remaining, written))
+			return -1;
+		pos += written;
+		remaining -= written;
+	}
 
 	if (conf->wba_qm_min_rssi_configured) {
 		written = os_snprintf(pos, remaining,
