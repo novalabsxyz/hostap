@@ -7,6 +7,7 @@
  */
 
 #include "utils/includes.h"
+#include <fcntl.h>
 #include "utils/common.h"
 #include "utils/eloop.h"
 #include "common/ieee802_11_common.h"
@@ -39,6 +40,48 @@ struct wba_qm_ema {
 /* noise stored as offset binary (nf + 128) so signed dBm maps to u32 */
 #define WBA_QM_NOISE_OFFSET 128
 
+#define WBA_QM_RTT_TIMEOUT_MS 1000
+#define WBA_QM_RTT_FALLBACK_THRESHOLD 3
+#define WBA_QM_RTT_BUF_SIZE 10
+#define WBA_QM_RTT_DEFAULT_INTERVAL 60
+
+/* ICMP constants — not pulling netinet/ip_icmp.h to keep
+ * cross-compilation simple on openwrt toolchains */
+#define WBA_QM_ICMP_ECHO_REQUEST 8
+#define WBA_QM_ICMP_ECHO_REPLY   0
+
+struct wba_qm_icmp_echo {
+	u8 type;
+	u8 code;
+	u8 checksum[2];
+	u8 id[2];
+	u8 seq[2];
+};
+
+/* minimal IP header — only need ihl + protocol + src to match
+ * ICMP replies; avoids pulling netinet/ip.h across toolchains */
+struct wba_qm_iphdr {
+	u8 ver_ihl;
+	u8 tos;
+	u8 tot_len[2];
+	u8 id[2];
+	u8 frag[2];
+	u8 ttl;
+	u8 protocol;
+	u8 check[2];
+	u8 saddr[4];
+	u8 daddr[4];
+};
+
+/* host byte order — converted via htonl() at use sites */
+static const u32 wba_qm_rtt_defaults[] = {
+	0x01010101, /* 1.1.1.1 */
+	0x08080808, /* 8.8.8.8 */
+	0x09090909, /* 9.9.9.9 */
+};
+#define WBA_QM_RTT_NUM_DEFAULTS (sizeof(wba_qm_rtt_defaults) / \
+				 sizeof(wba_qm_rtt_defaults[0]))
+
 struct wba_qm_ctx {
 	struct hostapd_iface *iface;
 	int timer_active;
@@ -57,10 +100,343 @@ struct wba_qm_ctx {
 
 	struct wba_qm_circular noise_buf;
 	struct wba_qm_ema noise_ema;
+
+	int rtt_sock;
+	u32 rtt_target;
+	u16 rtt_seq;
+	u16 rtt_id;
+	struct os_reltime rtt_send_time;
+	int rtt_pending;
+	struct wba_qm_circular rtt_buf;
+	int rtt_consecutive_failures;
+	int rtt_fallback_idx;
+	int rtt_timer_active;
 };
 
 
 static void wba_qm_timer_cb(void *eloop_data, void *user_data);
+static void wba_qm_rtt_timer_cb(void *eloop_data, void *user_data);
+static void wba_qm_rtt_rx(int sock, void *eloop_ctx, void *sock_ctx);
+static void wba_qm_rtt_timeout_cb(void *eloop_data, void *user_data);
+static void wba_qm_circular_push(struct wba_qm_circular *cb, u32 value);
+static u32 wba_qm_circular_average(struct wba_qm_circular *cb);
+
+static inline void wba_qm_circular_reset(struct wba_qm_circular *cb)
+{
+	cb->count = 0;
+	cb->head = 0;
+}
+
+
+/* --- WAN-RTT ICMP probing --- */
+
+static u16 wba_qm_icmp_checksum(const void *data, size_t len)
+{
+	const u8 *p = data;
+	u32 sum = 0;
+	size_t idx;
+
+	for (idx = 0; idx + 1 < len; idx += 2)
+		sum += ((u16) p[idx] << 8) | p[idx + 1];
+	if (idx < len)
+		sum += (u16) p[idx] << 8;
+
+	while (sum >> 16)
+		sum = (sum & 0xFFFF) + (sum >> 16);
+
+	return host_to_be16((u16) ~sum);
+}
+
+
+static void wba_qm_rtt_select_target(struct wba_qm_ctx *ctx)
+{
+	struct hostapd_config *conf = ctx->iface->conf;
+
+	if (conf->wba_qm_wan_rtt_target != 0) {
+		ctx->rtt_target = conf->wba_qm_wan_rtt_target;
+	} else {
+		ctx->rtt_target = htonl(wba_qm_rtt_defaults[0]);
+	}
+	ctx->rtt_fallback_idx = 0;
+	ctx->rtt_consecutive_failures = 0;
+}
+
+
+static void wba_qm_rtt_rotate_target(struct wba_qm_ctx *ctx)
+{
+	struct hostapd_config *conf = ctx->iface->conf;
+	struct in_addr old_addr, new_addr;
+
+	old_addr.s_addr = ctx->rtt_target;
+
+	/* if user configured a target, it occupies slot 0 in the
+	 * logical list, with the defaults following after it */
+	if (conf->wba_qm_wan_rtt_target != 0) {
+		ctx->rtt_fallback_idx++;
+		if ((size_t) ctx->rtt_fallback_idx >
+		    WBA_QM_RTT_NUM_DEFAULTS)
+			ctx->rtt_fallback_idx = 0;
+
+		if (ctx->rtt_fallback_idx == 0)
+			ctx->rtt_target = conf->wba_qm_wan_rtt_target;
+		else
+			ctx->rtt_target = htonl(
+				wba_qm_rtt_defaults[ctx->rtt_fallback_idx - 1]);
+	} else {
+		ctx->rtt_fallback_idx =
+			(ctx->rtt_fallback_idx + 1) %
+			(int) WBA_QM_RTT_NUM_DEFAULTS;
+		ctx->rtt_target = htonl(
+			wba_qm_rtt_defaults[ctx->rtt_fallback_idx]);
+	}
+
+	ctx->rtt_consecutive_failures = 0;
+	wba_qm_circular_reset(&ctx->rtt_buf);
+
+	/* inet_ntoa returns static buffer, can't use twice
+	 * in one printf call */
+	new_addr.s_addr = ctx->rtt_target;
+	wpa_printf(MSG_DEBUG,
+		   "wba_qm: rtt fallback from %s", inet_ntoa(old_addr));
+	wpa_printf(MSG_DEBUG,
+		   "wba_qm: rtt new target %s", inet_ntoa(new_addr));
+}
+
+
+static int wba_qm_rtt_open_sock(struct wba_qm_ctx *ctx)
+{
+	int sock, flags;
+
+	if (ctx->rtt_sock >= 0)
+		return 0;
+
+	sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+	if (sock < 0) {
+		wpa_printf(MSG_WARNING,
+			   "wba_qm: failed to open ICMP socket: %s",
+			   strerror(errno));
+		return -1;
+	}
+
+	flags = fcntl(sock, F_GETFL, 0);
+	if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
+		wpa_printf(MSG_WARNING,
+			   "wba_qm: failed to set ICMP socket non-blocking");
+		close(sock);
+		return -1;
+	}
+
+	if (eloop_register_read_sock(sock, wba_qm_rtt_rx, ctx, NULL) != 0) {
+		wpa_printf(MSG_WARNING,
+			   "wba_qm: failed to register ICMP socket with eloop");
+		close(sock);
+		return -1;
+	}
+
+	ctx->rtt_sock = sock;
+	ctx->rtt_id = (u16)(getpid() & 0xFFFF);
+	wpa_printf(MSG_DEBUG, "wba_qm: rtt socket opened fd=%d id=0x%04x",
+		   sock, ctx->rtt_id);
+	return 0;
+}
+
+
+static void wba_qm_rtt_close_sock(struct wba_qm_ctx *ctx)
+{
+	if (ctx->rtt_sock < 0)
+		return;
+
+	eloop_cancel_timeout(wba_qm_rtt_timeout_cb, ctx, NULL);
+	eloop_unregister_read_sock(ctx->rtt_sock);
+	close(ctx->rtt_sock);
+	ctx->rtt_sock = -1;
+	ctx->rtt_pending = 0;
+	wpa_printf(MSG_DEBUG, "wba_qm: rtt socket closed");
+}
+
+
+static void wba_qm_rtt_send_probe(struct wba_qm_ctx *ctx)
+{
+	struct wba_qm_icmp_echo pkt;
+	struct sockaddr_in dst;
+	int ret;
+
+	if (ctx->rtt_sock < 0)
+		return;
+
+	if (ctx->rtt_pending) {
+		wpa_printf(MSG_MSGDUMP,
+			   "wba_qm: rtt probe still pending, skipping");
+		return;
+	}
+
+	os_memset(&pkt, 0, sizeof(pkt));
+	pkt.type = WBA_QM_ICMP_ECHO_REQUEST;
+	pkt.code = 0;
+	WPA_PUT_BE16(pkt.id, ctx->rtt_id);
+	WPA_PUT_BE16(pkt.seq, ctx->rtt_seq);
+
+	/* checksum must be computed with checksum field zeroed */
+	{
+		u16 cksum = wba_qm_icmp_checksum(&pkt, sizeof(pkt));
+		os_memcpy(pkt.checksum, &cksum, 2);
+	}
+
+	os_memset(&dst, 0, sizeof(dst));
+	dst.sin_family = AF_INET;
+	dst.sin_addr.s_addr = ctx->rtt_target;
+
+	ret = sendto(ctx->rtt_sock, &pkt, sizeof(pkt), 0,
+		     (struct sockaddr *) &dst, sizeof(dst));
+	if (ret < 0) {
+		wpa_printf(MSG_DEBUG,
+			   "wba_qm: rtt sendto failed: %s", strerror(errno));
+		ctx->rtt_consecutive_failures++;
+		if (ctx->rtt_consecutive_failures >=
+		    WBA_QM_RTT_FALLBACK_THRESHOLD)
+			wba_qm_rtt_rotate_target(ctx);
+		return;
+	}
+
+	os_get_reltime(&ctx->rtt_send_time);
+	ctx->rtt_pending = 1;
+
+	if (eloop_register_timeout(0, WBA_QM_RTT_TIMEOUT_MS * 1000,
+				   wba_qm_rtt_timeout_cb, ctx, NULL) != 0) {
+		wpa_printf(MSG_WARNING,
+			   "wba_qm: failed to register rtt timeout");
+		ctx->rtt_pending = 0;
+	}
+
+	wpa_printf(MSG_MSGDUMP,
+		   "wba_qm: rtt probe sent seq=%u target=%s",
+		   ctx->rtt_seq, inet_ntoa(dst.sin_addr));
+
+	ctx->rtt_seq++;
+}
+
+
+static void wba_qm_rtt_rx(int sock, void *eloop_ctx, void *sock_ctx)
+{
+	struct wba_qm_ctx *ctx = eloop_ctx;
+	u8 rxbuf[128];
+	ssize_t len;
+	struct wba_qm_iphdr *iph;
+	struct wba_qm_icmp_echo *icmp;
+	int ihl;
+	struct os_reltime now, delta;
+	u32 rtt_ms;
+
+	len = recv(sock, rxbuf, sizeof(rxbuf), 0);
+	if (len < 0)
+		return;
+
+	if ((size_t) len < sizeof(struct wba_qm_iphdr))
+		return;
+
+	iph = (struct wba_qm_iphdr *) rxbuf;
+	ihl = (iph->ver_ihl & 0x0F) * 4;
+
+	if (ihl < (int) sizeof(struct wba_qm_iphdr))
+		return;
+
+	if (iph->protocol != IPPROTO_ICMP)
+		return;
+
+	if ((size_t) len < (size_t) ihl + sizeof(struct wba_qm_icmp_echo))
+		return;
+
+	icmp = (struct wba_qm_icmp_echo *) (rxbuf + ihl);
+
+	if (icmp->type != WBA_QM_ICMP_ECHO_REPLY || icmp->code != 0)
+		return;
+
+	if (WPA_GET_BE16(icmp->id) != ctx->rtt_id)
+		return;
+
+	if (!ctx->rtt_pending)
+		return;
+
+	/* validate source IP and seq to reject late replies
+	 * from a previous target after fallback rotation */
+	if (os_memcmp(iph->saddr, &ctx->rtt_target, 4) != 0)
+		return;
+
+	if (WPA_GET_BE16(icmp->seq) != (u16)(ctx->rtt_seq - 1))
+		return;
+
+	eloop_cancel_timeout(wba_qm_rtt_timeout_cb, ctx, NULL);
+	ctx->rtt_pending = 0;
+
+	os_get_reltime(&now);
+	os_reltime_sub(&now, &ctx->rtt_send_time, &delta);
+
+	rtt_ms = (u32)(delta.sec * 1000 + delta.usec / 1000);
+	if (rtt_ms > 999)
+		rtt_ms = 999;
+
+	wba_qm_circular_push(&ctx->rtt_buf, rtt_ms);
+	ctx->rtt_consecutive_failures = 0;
+
+	wpa_printf(MSG_DEBUG, "wba_qm: rtt reply seq=%u rtt=%ums",
+		   WPA_GET_BE16(icmp->seq), rtt_ms);
+}
+
+
+static void wba_qm_rtt_timeout_cb(void *eloop_data, void *user_data)
+{
+	struct wba_qm_ctx *ctx = eloop_data;
+
+	if (!ctx->rtt_pending)
+		return;
+
+	ctx->rtt_pending = 0;
+	ctx->rtt_consecutive_failures++;
+
+	wpa_printf(MSG_DEBUG,
+		   "wba_qm: rtt probe timeout (consecutive=%d)",
+		   ctx->rtt_consecutive_failures);
+
+	if (ctx->rtt_consecutive_failures >= WBA_QM_RTT_FALLBACK_THRESHOLD)
+		wba_qm_rtt_rotate_target(ctx);
+}
+
+
+static u32 wba_qm_rtt_get(struct wba_qm_ctx *ctx)
+{
+	if (ctx->rtt_buf.count == 0)
+		return 0;
+	return wba_qm_circular_average(&ctx->rtt_buf);
+}
+
+
+static void wba_qm_rtt_timer_cb(void *eloop_data, void *user_data)
+{
+	struct wba_qm_ctx *ctx = eloop_data;
+	struct hostapd_config *conf;
+	unsigned int interval;
+
+	if (!ctx || !ctx->iface || !ctx->iface->conf) {
+		if (ctx)
+			ctx->rtt_timer_active = 0;
+		return;
+	}
+
+	conf = ctx->iface->conf;
+
+	wba_qm_rtt_send_probe(ctx);
+
+	interval = conf->wba_qm_wan_rtt_interval;
+	if (interval < 1)
+		interval = WBA_QM_RTT_DEFAULT_INTERVAL;
+
+	if (eloop_register_timeout(interval, 0, wba_qm_rtt_timer_cb,
+				   ctx, NULL) != 0) {
+		ctx->rtt_timer_active = 0;
+		wpa_printf(MSG_ERROR,
+			   "wba_qm: failed to re-register rtt timer");
+	}
+}
 
 
 static int wba_qm_resolve_oc(struct wba_qm_ctx *ctx, u8 *op_class,
@@ -409,6 +785,7 @@ static void wba_qm_sample(struct wba_qm_ctx *ctx)
 			break;
 		}
 	}
+
 }
 
 
@@ -452,6 +829,8 @@ struct wba_qm_ctx * wba_qm_init(struct hostapd_iface *iface)
 		return NULL;
 
 	ctx->iface = iface;
+	ctx->rtt_sock = -1;
+	wba_qm_rtt_select_target(ctx);
 
 	wpa_printf(MSG_DEBUG, "wba_qm: initialized");
 	return ctx;
@@ -464,9 +843,11 @@ void wba_qm_deinit(struct wba_qm_ctx *ctx)
 		return;
 
 	wba_qm_stop_timer(ctx);
+	wba_qm_rtt_close_sock(ctx);
 	os_free(ctx->cu_buf);
 	wba_qm_circular_free(&ctx->sta_buf);
 	wba_qm_circular_free(&ctx->noise_buf);
+	wba_qm_circular_free(&ctx->rtt_buf);
 	wpa_printf(MSG_DEBUG, "wba_qm: deinitialized");
 	os_free(ctx);
 }
@@ -477,6 +858,62 @@ static int wba_qm_needs_timer(struct hostapd_config *conf)
 	return conf->wba_qm_chan_util_acc > 0 ||
 	       conf->wba_qm_sta_count_avg_type != WBA_QM_AVG_NONE ||
 	       conf->wba_qm_noise_avg_type != WBA_QM_AVG_NONE;
+}
+
+
+static void wba_qm_rtt_stop(struct wba_qm_ctx *ctx)
+{
+	if (ctx->rtt_timer_active) {
+		eloop_cancel_timeout(wba_qm_rtt_timer_cb, ctx, NULL);
+		ctx->rtt_timer_active = 0;
+	}
+	wba_qm_rtt_close_sock(ctx);
+}
+
+
+static int wba_qm_rtt_start(struct wba_qm_ctx *ctx)
+{
+	struct hostapd_config *conf = ctx->iface->conf;
+	unsigned int rtt_interval;
+
+	wba_qm_rtt_stop(ctx);
+	wba_qm_rtt_select_target(ctx);
+	wba_qm_circular_reset(&ctx->rtt_buf);
+
+	if (!conf->wba_qm_enabled || !conf->wba_qm_wan_rtt_enabled)
+		return 0;
+
+	if (wba_qm_rtt_open_sock(ctx) != 0)
+		return -1;
+
+	if (wba_qm_circular_alloc(&ctx->rtt_buf,
+				   WBA_QM_RTT_BUF_SIZE, 1) != 0) {
+		wpa_printf(MSG_ERROR,
+			   "wba_qm: failed to allocate rtt circular buffer");
+		wba_qm_rtt_close_sock(ctx);
+		return -1;
+	}
+
+	rtt_interval = conf->wba_qm_wan_rtt_interval;
+	if (rtt_interval < 1)
+		rtt_interval = WBA_QM_RTT_DEFAULT_INTERVAL;
+
+	if (eloop_register_timeout(rtt_interval, 0, wba_qm_rtt_timer_cb,
+				   ctx, NULL) != 0) {
+		wpa_printf(MSG_ERROR,
+			   "wba_qm: failed to register rtt timer");
+		wba_qm_rtt_close_sock(ctx);
+		return -1;
+	}
+
+	ctx->rtt_timer_active = 1;
+	wpa_printf(MSG_DEBUG, "wba_qm: rtt timer started, interval=%u",
+		   rtt_interval);
+
+	/* send first probe immediately so early RADIUS messages
+	 * have RTT data without waiting a full interval */
+	wba_qm_rtt_send_probe(ctx);
+	return 0;
 }
 
 
@@ -540,6 +977,9 @@ int wba_qm_start_timer(struct wba_qm_ctx *ctx)
 		wba_qm_ema_reset(&ctx->noise_ema);
 	}
 
+	/* WAN-RTT — independent timer */
+	wba_qm_rtt_start(ctx);
+
 	if (!wba_qm_needs_timer(conf)) {
 		wpa_printf(MSG_DEBUG,
 			   "wba_qm: no averaging configured, timer not needed");
@@ -568,11 +1008,21 @@ void wba_qm_stop_timer(struct wba_qm_ctx *ctx)
 	if (!ctx)
 		return;
 
+	wba_qm_rtt_stop(ctx);
+
 	if (ctx->timer_active) {
 		eloop_cancel_timeout(wba_qm_timer_cb, ctx, NULL);
 		ctx->timer_active = 0;
 		wpa_printf(MSG_DEBUG, "wba_qm: timer stopped");
 	}
+}
+
+
+void wba_qm_restart_rtt(struct wba_qm_ctx *ctx)
+{
+	if (!ctx)
+		return;
+	wba_qm_rtt_start(ctx);
 }
 
 
@@ -753,6 +1203,16 @@ void wba_qm_add_radius_attrs(struct wba_qm_ctx *ctx,
 					   conf->wba_qm_noise_avg_param);
 		}
 	}
+
+	/* WBA-WAN-RTT (sub-type 100) */
+	if (conf->wba_qm_wan_rtt_enabled && ctx->rtt_buf.count > 0) {
+		u32 rtt = wba_qm_rtt_get(ctx);
+
+		if (wba_qm_add_vsa_u32(msg, RADIUS_WBA_ATTR_WAN_RTT,
+					rtt, "WAN-RTT") == 0)
+			wpa_printf(MSG_DEBUG,
+				   "wba_qm: added WAN-RTT=%u ms", rtt);
+	}
 }
 
 
@@ -906,6 +1366,53 @@ int wba_qm_get_status(struct wba_qm_ctx *ctx, char *buf, size_t buflen)
 		}
 
 		written = os_snprintf(pos, remaining, "\n");
+		if (os_snprintf_error(remaining, written))
+			return -1;
+		pos += written;
+		remaining -= written;
+	}
+
+	written = os_snprintf(pos, remaining,
+			      "wan_rtt_enabled=%d\n",
+			      conf->wba_qm_wan_rtt_enabled);
+	if (os_snprintf_error(remaining, written))
+		return -1;
+	pos += written;
+	remaining -= written;
+
+	if (conf->wba_qm_wan_rtt_enabled && ctx->rtt_target != 0) {
+		struct in_addr target_addr;
+
+		target_addr.s_addr = ctx->rtt_target;
+		written = os_snprintf(pos, remaining,
+				      "wan_rtt_target=%s\n",
+				      inet_ntoa(target_addr));
+		if (os_snprintf_error(remaining, written))
+			return -1;
+		pos += written;
+		remaining -= written;
+
+		written = os_snprintf(pos, remaining,
+				      "wan_rtt_interval=%u\n",
+				      conf->wba_qm_wan_rtt_interval);
+		if (os_snprintf_error(remaining, written))
+			return -1;
+		pos += written;
+		remaining -= written;
+
+		if (ctx->rtt_buf.count > 0) {
+			written = os_snprintf(pos, remaining,
+					      "wan_rtt=%u\n",
+					      wba_qm_rtt_get(ctx));
+			if (os_snprintf_error(remaining, written))
+				return -1;
+			pos += written;
+			remaining -= written;
+		}
+
+		written = os_snprintf(pos, remaining,
+				      "wan_rtt_samples=%zu\n",
+				      ctx->rtt_buf.count);
 		if (os_snprintf_error(remaining, written))
 			return -1;
 		pos += written;

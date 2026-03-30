@@ -1357,6 +1357,31 @@ static int hostapd_ctrl_iface_set(struct hostapd_data *hapd, char *cmd)
 				wpa_printf(MSG_WARNING,
 					   "wba_qm: failed to restart timer after noise avg change");
 		}
+	} else if (os_strcasecmp(cmd, "wba_qm_wan_rtt_enabled") == 0) {
+		char *endptr;
+		long val = strtol(value, &endptr, 10);
+		if (endptr == value || *endptr != '\0' ||
+		    (val != 0 && val != 1))
+			return -1;
+		hapd->iconf->wba_qm_wan_rtt_enabled = val;
+		if (hapd->iface->wba_qm)
+			wba_qm_restart_rtt(hapd->iface->wba_qm);
+	} else if (os_strcasecmp(cmd, "wba_qm_wan_rtt_target") == 0) {
+		struct in_addr addr;
+		if (inet_aton(value, &addr) == 0)
+			return -1;
+		hapd->iconf->wba_qm_wan_rtt_target = addr.s_addr;
+		if (hapd->iface->wba_qm)
+			wba_qm_restart_rtt(hapd->iface->wba_qm);
+	} else if (os_strcasecmp(cmd, "wba_qm_wan_rtt_interval") == 0) {
+		char *endptr;
+		unsigned long val = strtoul(value, &endptr, 10);
+		if (endptr == value || *endptr != '\0' ||
+		    val < 1 || val > 3600)
+			return -1;
+		hapd->iconf->wba_qm_wan_rtt_interval = val;
+		if (hapd->iface->wba_qm)
+			wba_qm_restart_rtt(hapd->iface->wba_qm);
 #endif /* CONFIG_WBA_QM */
 #ifdef CONFIG_DPP
 	} else if (os_strcasecmp(cmd, "dpp_configurator_params") == 0) {

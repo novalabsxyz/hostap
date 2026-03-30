@@ -1283,6 +1283,9 @@ struct hostapd_config {
 	int wba_qm_sta_count_avg_param;
 	int wba_qm_noise_avg_type;
 	int wba_qm_noise_avg_param;
+	int wba_qm_wan_rtt_enabled;
+	u32 wba_qm_wan_rtt_target; /* network byte order, 0 = default 1.1.1.1 */
+	unsigned int wba_qm_wan_rtt_interval;
 #endif /* CONFIG_WBA_QM */
 };
 
