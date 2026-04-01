@@ -2224,6 +2224,10 @@ static void hostapd_single_channel_get_survey(struct hostapd_iface *iface,
 	}
 	iface->last_channel_time = survey->channel_time;
 	iface->last_channel_time_busy = survey->channel_time_busy;
+
+	hostapd_update_nf(iface, chan, survey);
+	if (!iface->chans_surveyed)
+		iface->chans_surveyed++;
 }
 
 

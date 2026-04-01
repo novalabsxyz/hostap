@@ -43,6 +43,10 @@ struct mesh_conf;
 struct wifi_stats_ctx;
 #endif /* CONFIG_WIFI_STATS */
 
+#ifdef CONFIG_WBA_QM
+struct wba_qm_ctx;
+#endif /* CONFIG_WBA_QM */
+
 #ifdef CONFIG_CTRL_IFACE_UDP
 #define CTRL_IFACE_COOKIE_LEN 8
 #endif /* CONFIG_CTRL_IFACE_UDP */
@@ -761,9 +765,14 @@ struct hostapd_iface {
 #ifdef CONFIG_WIFI_STATS
 	struct wifi_stats_ctx *wifi_stats;
 #endif /* CONFIG_WIFI_STATS */
+
+#ifdef CONFIG_WBA_QM
+	struct wba_qm_ctx *wba_qm;
+#endif /* CONFIG_WBA_QM */
 };
 
 /* hostapd.c */
+int hostapd_iface_num_sta(struct hostapd_iface *iface);
 int hostapd_for_each_interface(struct hapd_interfaces *interfaces,
 			       int (*cb)(struct hostapd_iface *iface,
 					 void *ctx), void *ctx);

@@ -365,6 +365,11 @@ CFLAGS += -DCONFIG_WIFI_STATS
 OBJS += ../src/wifi_stats/wifi_stats.o
 endif
 
+ifdef CONFIG_WBA_QM
+CFLAGS += -DCONFIG_WBA_QM
+OBJS += ../src/ap/wba_quality_metrics.o
+endif
+
 include ../src/drivers/drivers.mak
 OBJS += $(DRV_AP_OBJS)
 CFLAGS += $(DRV_AP_CFLAGS)
