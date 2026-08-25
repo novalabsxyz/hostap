@@ -19,6 +19,7 @@
 #include "wps/wps.h"
 #include "fst/fst.h"
 #include "vlan.h"
+#include "wifi_stats.h"
 
 enum macaddr_acl {
 	ACCEPT_UNLESS_DENIED = 0,
@@ -1345,6 +1346,18 @@ struct hostapd_config {
 		int min_power;
 	} afc;
 #endif /* CONFIG_AFC */
+
+#ifdef CONFIG_WIFI_STATS
+	unsigned int wifi_stats_interval;
+	unsigned int wifi_stats_wba_window;
+	unsigned int wifi_stats_ewma_weight;
+	enum wifi_stats_span_mode wifi_stats_span;
+	bool wifi_stats_wba_enabled;
+	struct wifi_stats_metric_config {
+		bool configured;
+		enum wifi_stats_agg_type algorithm;
+	} wifi_stats_metrics[WIFI_STATS_METRIC_COUNT];
+#endif /* CONFIG_WIFI_STATS */
 };
 
 

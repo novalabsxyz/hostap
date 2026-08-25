@@ -326,6 +326,13 @@ struct hostapd_config * hostapd_config_defaults(void)
 
 	conf->disable_mcs15_rx = true;
 
+#ifdef CONFIG_WIFI_STATS
+	conf->wifi_stats_interval = WIFI_STATS_DEFAULT_INTERVAL;
+	conf->wifi_stats_wba_window = WIFI_STATS_DEFAULT_WINDOW;
+	conf->wifi_stats_ewma_weight = WIFI_STATS_DEFAULT_EWMA_WEIGHT;
+	conf->wifi_stats_span = WIFI_STATS_SPAN_WINDOW;
+#endif /* CONFIG_WIFI_STATS */
+
 	return conf;
 }
 

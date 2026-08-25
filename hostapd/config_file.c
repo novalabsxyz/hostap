@@ -23,6 +23,7 @@
 #include "radius/radius_client.h"
 #include "ap/wpa_auth.h"
 #include "ap/ap_config.h"
+#include "ap/wifi_stats.h"
 #include "config_file.h"
 
 
@@ -2519,6 +2520,107 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 	} else if (os_strcmp(buf, "config_id") == 0) {
 		os_free(bss->config_id);
 		bss->config_id = os_strdup(pos);
+#ifdef CONFIG_WIFI_STATS
+	} else if (os_strcmp(buf, "wifi_stats_interval") == 0) {
+		char *end;
+		long int val = strtol(pos, &end, 10);
+
+		if (end == pos || *end ||
+		    val < WIFI_STATS_MIN_INTERVAL ||
+		    val > WIFI_STATS_MAX_INTERVAL) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wifi_stats_interval '%s' (must be %d-%d)",
+				   line, pos, WIFI_STATS_MIN_INTERVAL,
+				   WIFI_STATS_MAX_INTERVAL);
+			return 1;
+		}
+		conf->wifi_stats_interval = (unsigned int) val;
+	} else if (os_strcmp(buf, "wifi_stats_wba_window") == 0) {
+		char *end;
+		long int val = strtol(pos, &end, 10);
+
+		if (end == pos || *end ||
+		    val < WIFI_STATS_MIN_WINDOW ||
+		    val > WIFI_STATS_MAX_WINDOW) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wifi_stats_wba_window '%s' (must be %d-%d seconds)",
+				   line, pos, WIFI_STATS_MIN_WINDOW,
+				   WIFI_STATS_MAX_WINDOW);
+			return 1;
+		}
+		conf->wifi_stats_wba_window = (unsigned int) val;
+	} else if (os_strcmp(buf, "wifi_stats_span") == 0) {
+		enum wifi_stats_span_mode mode =
+			wifi_stats_span_mode_from_str(pos);
+
+		if (mode >= WIFI_STATS_SPAN_COUNT) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wifi_stats_span '%s' (must be report or window)",
+				   line, pos);
+			return 1;
+		}
+		conf->wifi_stats_span = mode;
+	} else if (os_strcmp(buf, "wifi_stats_ewma_weight") == 0) {
+		char *end;
+		long int val = strtol(pos, &end, 10);
+
+		if (end == pos || *end ||
+		    val < WIFI_STATS_MIN_EWMA_WEIGHT ||
+		    val > WIFI_STATS_MAX_EWMA_WEIGHT) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wifi_stats_ewma_weight '%s' (must be %d-%d)",
+				   line, pos, WIFI_STATS_MIN_EWMA_WEIGHT,
+				   WIFI_STATS_MAX_EWMA_WEIGHT);
+			return 1;
+		}
+		conf->wifi_stats_ewma_weight = (unsigned int) val;
+	} else if (os_strcmp(buf, "wifi_stats_wba_enabled") == 0) {
+		char *end;
+		long int val = strtol(pos, &end, 10);
+
+		if (end == pos || *end ||
+		    (val != 0 && val != 1)) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Invalid wifi_stats_wba_enabled '%s' (must be 0 or 1)",
+				   line, pos);
+			return 1;
+		}
+		conf->wifi_stats_wba_enabled = val;
+	} else if (os_strncmp(buf, "wifi_stats_metric_", 18) == 0) {
+		const char *metric_name = buf + 18;
+		enum wifi_stats_metric_type metric_idx;
+		enum wifi_stats_agg_type algorithm;
+
+		metric_idx = wifi_stats_metric_type_from_str(metric_name);
+		if (metric_idx >= WIFI_STATS_METRIC_COUNT) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Unknown wifi_stats metric '%s'",
+				   line, metric_name);
+			return 1;
+		}
+
+		algorithm = wifi_stats_agg_type_from_str(pos);
+		if (algorithm >= WIFI_STATS_AGG_COUNT) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Unknown algorithm '%s'",
+				   line, pos);
+			return 1;
+		}
+
+		if (!wifi_stats_algorithm_valid(metric_idx, algorithm)) {
+			wpa_printf(MSG_ERROR,
+				   "Line %d: Algorithm '%s' is not valid for wifi_stats metric '%s'",
+				   line, pos, metric_name);
+			return 1;
+		}
+
+		conf->wifi_stats_metrics[metric_idx].configured = true;
+		conf->wifi_stats_metrics[metric_idx].algorithm = algorithm;
+
+		wpa_printf(MSG_DEBUG,
+			   "wifi_stats: Configured metric=%s algorithm=%s",
+			   metric_name, pos);
+#endif /* CONFIG_WIFI_STATS */
 	} else if (os_strcmp(buf, "country_code") == 0) {
 		if (pos[0] < 'A' || pos[0] > 'Z' ||
 		    pos[1] < 'A' || pos[1] > 'Z') {
