@@ -374,6 +374,11 @@ CFLAGS += -DCONFIG_MBO
 OBJS += ../src/ap/mbo_ap.o
 endif
 
+ifdef CONFIG_WIFI_STATS
+CFLAGS += -DCONFIG_WIFI_STATS
+OBJS += ../src/ap/wifi_stats.o
+endif
+
 include ../src/drivers/drivers.mak
 OBJS += $(DRV_AP_OBJS)
 CFLAGS += $(DRV_AP_CFLAGS)

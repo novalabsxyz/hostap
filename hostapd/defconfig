@@ -442,3 +442,7 @@ CONFIG_DPP2=y
 # Note: These features are experimental and still changing; do not enable for
 # production use.
 #CONFIG_PQC=y
+
+# Wi-Fi statistics collection and WBA Connect-Info reporting in RADIUS
+# (draft-ietf-radext-connectinfo-02)
+#CONFIG_WIFI_STATS=y
