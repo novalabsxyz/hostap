@@ -55,6 +55,7 @@
 #include "acs.h"
 #include "hs20.h"
 #include "airtime_policy.h"
+#include "wifi_stats.h"
 #include "wpa_auth_kay.h"
 #include "hw_features.h"
 
@@ -300,6 +301,7 @@ int hostapd_reload_config(struct hostapd_iface *iface)
 		hostapd_clear_old(iface);
 		for (j = 0; j < iface->num_bss; j++)
 			hostapd_reload_bss(iface->bss[j]);
+		wifi_stats_reload_config(iface);
 		return 0;
 	}
 
@@ -377,6 +379,7 @@ int hostapd_reload_config(struct hostapd_iface *iface)
 	iface->conf = newconf;
 	hostapd_config_free(oldconf);
 
+	wifi_stats_reload_config(iface);
 
 	return 0;
 }
@@ -3017,6 +3020,8 @@ int hostapd_setup_interface(struct hostapd_iface *iface)
 		return -1;
 	}
 
+	wifi_stats_init(iface);
+
 	return 0;
 }
 
@@ -3118,6 +3123,8 @@ void hostapd_interface_deinit(struct hostapd_iface *iface)
 	hostapd_stop_setup_timers(iface);
 	eloop_cancel_timeout(ap_ht2040_timeout, iface, NULL);
 #endif /* NEED_AP_MLME */
+
+	wifi_stats_deinit(iface);
 }
 
 
@@ -3728,6 +3735,8 @@ int hostapd_reload_iface(struct hostapd_iface *hapd_iface)
 	for (j = 0; j < hapd_iface->num_bss; j++)
 		hostapd_reload_bss(hapd_iface->bss[j]);
 
+	wifi_stats_reload_config(hapd_iface);
+
 	return 0;
 }
 
@@ -3781,6 +3790,8 @@ int hostapd_disable_iface(struct hostapd_iface *hapd_iface)
 		hostapd_bss_link_deinit(hapd);
 		hostapd_free_hapd_data(hapd);
 	}
+
+	wifi_stats_deinit(hapd_iface);
 
 	hostapd_deinit_driver(hapd_iface->bss[0]->driver,
 			      hapd_iface->bss[0]->drv_priv, hapd_iface);
@@ -4196,6 +4207,8 @@ void hostapd_new_assoc_sta(struct hostapd_data *hapd, struct sta_info *sta,
 	    sta->mld_assoc_link_id != hapd->mld_link_id)
 		return;
 #endif /* CONFIG_IEEE80211BE */
+
+	wifi_stats_new_assoc(hapd, sta);
 
 	ap_sta_clear_disconnect_timeouts(hapd, sta);
 	ap_sta_clear_assoc_timeout(hapd, sta);

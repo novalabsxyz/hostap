@@ -786,6 +786,10 @@ struct hostapd_iface {
 		bool data_valid;
 	} afc;
 #endif /* CONFIG_AFC */
+
+#ifdef CONFIG_WIFI_STATS
+	struct wifi_stats_ctx *wifi_stats;
+#endif /* CONFIG_WIFI_STATS */
 };
 
 /* hostapd.c */
