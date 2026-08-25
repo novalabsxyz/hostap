@@ -1764,6 +1764,92 @@ static int hostapd_cli_cmd_driver(struct wpa_ctrl *ctrl, int argc, char *argv[])
 }
 #endif /* ANDROID */
 
+#ifdef CONFIG_WIFI_STATS
+static int hostapd_cli_cmd_wifi_stats_status(struct wpa_ctrl *ctrl, int argc,
+					     char *argv[])
+{
+	return wpa_ctrl_command(ctrl, "WIFI_STATS_STATUS");
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_get_interval(struct wpa_ctrl *ctrl,
+						   int argc, char *argv[])
+{
+	return wpa_ctrl_command(ctrl, "WIFI_STATS_GET_INTERVAL");
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_set_interval(struct wpa_ctrl *ctrl,
+						   int argc, char *argv[])
+{
+	return hostapd_cli_cmd(ctrl, "WIFI_STATS_SET_INTERVAL", 1, argc, argv);
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_get_window(struct wpa_ctrl *ctrl,
+						 int argc, char *argv[])
+{
+	return wpa_ctrl_command(ctrl, "WIFI_STATS_GET_WINDOW");
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_set_window(struct wpa_ctrl *ctrl,
+						 int argc, char *argv[])
+{
+	return hostapd_cli_cmd(ctrl, "WIFI_STATS_SET_WINDOW", 1, argc, argv);
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_get_span(struct wpa_ctrl *ctrl,
+					       int argc, char *argv[])
+{
+	return wpa_ctrl_command(ctrl, "WIFI_STATS_GET_SPAN");
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_set_span(struct wpa_ctrl *ctrl,
+					       int argc, char *argv[])
+{
+	return hostapd_cli_cmd(ctrl, "WIFI_STATS_SET_SPAN", 1, argc, argv);
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_get_ewma_weight(struct wpa_ctrl *ctrl,
+						      int argc, char *argv[])
+{
+	return wpa_ctrl_command(ctrl, "WIFI_STATS_GET_EWMA_WEIGHT");
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_set_ewma_weight(struct wpa_ctrl *ctrl,
+						      int argc, char *argv[])
+{
+	return hostapd_cli_cmd(ctrl, "WIFI_STATS_SET_EWMA_WEIGHT", 1, argc,
+			       argv);
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_get_metric(struct wpa_ctrl *ctrl,
+						 int argc, char *argv[])
+{
+	return hostapd_cli_cmd(ctrl, "WIFI_STATS_GET_METRIC", 1, argc, argv);
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_set_metric(struct wpa_ctrl *ctrl,
+						 int argc, char *argv[])
+{
+	return hostapd_cli_cmd(ctrl, "WIFI_STATS_SET_METRIC", 2, argc, argv);
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_connect_info(struct wpa_ctrl *ctrl,
+						   int argc, char *argv[])
+{
+	return hostapd_cli_cmd(ctrl, "WIFI_STATS_CONNECT_INFO", 1, argc, argv);
+}
+#endif /* CONFIG_WIFI_STATS */
+
 
 #ifdef CONFIG_AFC
 
@@ -2046,6 +2132,37 @@ static const struct hostapd_cli_cmd hostapd_cli_commands[] = {
 	{ "afc_send_request", hostapd_cli_cmd_afc_send_request, NULL,
 	  " = Send another AFC request and upadte the timeout"},
 #endif /* CONFIG_AFC */
+#ifdef CONFIG_WIFI_STATS
+	{ "wifi_stats_status", hostapd_cli_cmd_wifi_stats_status, NULL,
+	  "= show wifi_stats configuration" },
+	{ "wifi_stats_get_interval", hostapd_cli_cmd_wifi_stats_get_interval, NULL,
+	  "= get stats collection interval" },
+	{ "wifi_stats_set_interval", hostapd_cli_cmd_wifi_stats_set_interval, NULL,
+	  "<seconds> = set stats collection interval (1-3600)" },
+	{ "wifi_stats_get_window", hostapd_cli_cmd_wifi_stats_get_window, NULL,
+	  "= get aggregation window" },
+	{ "wifi_stats_set_window", hostapd_cli_cmd_wifi_stats_set_window, NULL,
+	  "<seconds> = set aggregation window (1-3600)" },
+	{ "wifi_stats_get_span", hostapd_cli_cmd_wifi_stats_get_span, NULL,
+	  "= get aggregation span mode" },
+	{ "wifi_stats_set_span", hostapd_cli_cmd_wifi_stats_set_span, NULL,
+	  "<report|window> = set aggregation span mode" },
+	{ "wifi_stats_get_ewma_weight",
+	  hostapd_cli_cmd_wifi_stats_get_ewma_weight, NULL,
+	  "= get AVG-EXP exponential weight" },
+	{ "wifi_stats_set_ewma_weight",
+	  hostapd_cli_cmd_wifi_stats_set_ewma_weight, NULL,
+	  "<weight> = set AVG-EXP exponential weight (1-9, alpha=1/2^weight)" },
+	{ "wifi_stats_get_metric",
+	  hostapd_cli_cmd_wifi_stats_get_metric, NULL,
+	  "<metric> = get algorithm for metric "
+	  "(RxBitRate|TxBitRate|RSSI|FrameLoss|FrameRetry)" },
+	{ "wifi_stats_set_metric", hostapd_cli_cmd_wifi_stats_set_metric, NULL,
+	  "<metric> <algorithm> = set algorithm (MIN|MAX|AVG-LIN|AVG-EXP|ACC|NONE)" },
+	{ "wifi_stats_connect_info", hostapd_cli_cmd_wifi_stats_connect_info,
+	  hostapd_complete_stations,
+	  "<addr> = show Connect-Info string for a station" },
+#endif /* CONFIG_WIFI_STATS */
 	{ NULL, NULL, NULL, NULL }
 };
 
