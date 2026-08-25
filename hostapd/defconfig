@@ -437,3 +437,7 @@ CONFIG_DPP2=y
 
 # Automated Frequency Coordination for 6 GHz outdoor
 #CONFIG_AFC=y
+
+# WiFi statistics collection with RADIUS Connect-Info support
+# per draft-grayson-connectinfo-10
+#CONFIG_WIFI_STATS=y
