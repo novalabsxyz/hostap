@@ -67,6 +67,7 @@
 #include "ap/dfs.h"
 #include "ap/nan_usd_ap.h"
 #include "ap/robust_av.h"
+#include "ap/wifi_stats.h"
 #include "wps/wps_defs.h"
 #include "wps/wps.h"
 #include "fst/fst_ctrl_iface.h"
@@ -1461,6 +1462,10 @@ static int hostapd_ctrl_iface_set(struct hostapd_data *hapd, char *cmd)
 		} else if (os_strcasecmp(cmd, "transition_disable") == 0) {
 			wpa_auth_set_transition_disable(hapd->wpa_auth,
 							hapd->conf->transition_disable);
+#ifdef CONFIG_WIFI_STATS
+		} else if (os_strncmp(cmd, "wifi_stats_", 11) == 0) {
+			wifi_stats_reload_config(hapd->iface);
+#endif /* CONFIG_WIFI_STATS */
 		}
 
 #ifdef CONFIG_TESTING_OPTIONS
@@ -1488,6 +1493,42 @@ static int hostapd_ctrl_iface_set(struct hostapd_data *hapd, char *cmd)
 
 	return ret;
 }
+
+
+#ifdef CONFIG_WIFI_STATS
+static int hostapd_ctrl_iface_wifi_stats_connect_info(struct hostapd_data *hapd,
+						      char *cmd, char *buf,
+						      size_t buflen)
+{
+	u8 addr[ETH_ALEN];
+	char conn_info[WIFI_STATS_MAX_CONNECT_INFO_LEN + 1];
+	struct sta_info *sta;
+	int written;
+
+	if (hwaddr_aton(cmd, addr)) {
+		wpa_printf(MSG_DEBUG, "wifi_stats: Invalid MAC address: %s",
+			   cmd);
+		return -1;
+	}
+
+	sta = ap_get_sta(hapd, addr);
+	if (!sta) {
+		wpa_printf(MSG_DEBUG,
+			   "wifi_stats: Station " MACSTR " not found for Connect-Info query",
+			   MAC2STR(addr));
+		return -1;
+	}
+
+	if (wifi_stats_connect_info(hapd, sta, conn_info,
+				    sizeof(conn_info)) < 0)
+		return -1;
+
+	written = os_snprintf(buf, buflen, "%s\n", conn_info);
+	if (os_snprintf_error(buflen, written))
+		return -1;
+	return written;
+}
+#endif /* CONFIG_WIFI_STATS */
 
 
 static int hostapd_ctrl_iface_get(struct hostapd_data *hapd, char *cmd,
@@ -4912,6 +4953,14 @@ static int hostapd_ctrl_iface_receive_process(struct hostapd_data *hapd,
 		if (hostapd_ctrl_afc_send_request(hapd, buf + 16) < 0)
 			reply_len = -1;
 #endif /* CONFIG_AFC */
+#ifdef CONFIG_WIFI_STATS
+	} else if (os_strcmp(buf, "WIFI_STATS_STATUS") == 0) {
+		reply_len = wifi_stats_get_status(hapd->iface, reply,
+						  reply_size);
+	} else if (os_strncmp(buf, "WIFI_STATS_CONNECT_INFO ", 24) == 0) {
+		reply_len = hostapd_ctrl_iface_wifi_stats_connect_info(
+			hapd, buf + 24, reply, reply_size);
+#endif /* CONFIG_WIFI_STATS */
 	} else {
 		os_memcpy(reply, "UNKNOWN COMMAND\n", 16);
 		reply_len = 16;

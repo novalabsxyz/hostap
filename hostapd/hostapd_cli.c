@@ -1765,6 +1765,22 @@ static int hostapd_cli_cmd_driver(struct wpa_ctrl *ctrl, int argc, char *argv[])
 #endif /* ANDROID */
 
 
+#ifdef CONFIG_WIFI_STATS
+static int hostapd_cli_cmd_wifi_stats_status(struct wpa_ctrl *ctrl, int argc,
+					     char *argv[])
+{
+	return wpa_ctrl_command(ctrl, "WIFI_STATS_STATUS");
+}
+
+
+static int hostapd_cli_cmd_wifi_stats_connect_info(struct wpa_ctrl *ctrl,
+						   int argc, char *argv[])
+{
+	return hostapd_cli_cmd(ctrl, "WIFI_STATS_CONNECT_INFO", 1, argc, argv);
+}
+#endif /* CONFIG_WIFI_STATS */
+
+
 #ifdef CONFIG_AFC
 
 static int hostapd_cli_cmd_afc_get_request(struct wpa_ctrl *ctrl, int argc,
@@ -2046,6 +2062,13 @@ static const struct hostapd_cli_cmd hostapd_cli_commands[] = {
 	{ "afc_send_request", hostapd_cli_cmd_afc_send_request, NULL,
 	  " = Send another AFC request and upadte the timeout"},
 #endif /* CONFIG_AFC */
+#ifdef CONFIG_WIFI_STATS
+	{ "wifi_stats_status", hostapd_cli_cmd_wifi_stats_status, NULL,
+	  "= show wifi_stats configuration" },
+	{ "wifi_stats_connect_info", hostapd_cli_cmd_wifi_stats_connect_info,
+	  hostapd_complete_stations,
+	  "<addr> = show Connect-Info string for a station" },
+#endif /* CONFIG_WIFI_STATS */
 	{ NULL, NULL, NULL, NULL }
 };
 
