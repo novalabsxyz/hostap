@@ -383,6 +383,10 @@ struct sta_info {
 	/* (Re)Association Response frame with status success whose TX status
 	 * reported no ACK; see ieee802_11_rx_from_unknown() */
 	struct wpabuf *unacked_assoc_resp;
+
+#ifdef CONFIG_WIFI_STATS
+	struct wifi_stats_sta_buf *wifi_stats;
+#endif /* CONFIG_WIFI_STATS */
 };
 
 
