@@ -38,6 +38,9 @@
 #include "ieee802_11.h"
 #include "ieee802_1x.h"
 #include "wpa_auth_kay.h"
+#ifdef CONFIG_WIFI_STATS
+#include "wifi_stats/wifi_stats.h"
+#endif /* CONFIG_WIFI_STATS */
 
 
 #ifdef CONFIG_HS20
@@ -495,12 +498,37 @@ static int add_common_radius_sta_attr_rsn(struct hostapd_data *hapd,
 }
 
 
+#ifdef CONFIG_WIFI_STATS
+#define RADIUS_CONNECT_INFO_LEN (WIFI_STATS_MAX_CONN_INFO_LEN + 1)
+#else /* CONFIG_WIFI_STATS */
+#define RADIUS_CONNECT_INFO_LEN 128
+#endif /* CONFIG_WIFI_STATS */
+
+
+static bool add_wifi_stats_connect_info(struct hostapd_data *hapd,
+					struct sta_info *sta,
+					char *buf, size_t len)
+{
+#ifdef CONFIG_WIFI_STATS
+	if (!hapd->iface || !hapd->iface->wifi_stats ||
+	    !hapd->iconf->wifi_stats_wba_enabled)
+		return false;
+
+	return wifi_stats_format_connection_info(hapd->iface->wifi_stats,
+						 hapd, sta, sta->addr,
+						 buf, len) >= 0;
+#else /* CONFIG_WIFI_STATS */
+	return false;
+#endif /* CONFIG_WIFI_STATS */
+}
+
+
 static int add_common_radius_sta_attr(struct hostapd_data *hapd,
 				      struct hostapd_radius_attr *req_attr,
 				      struct sta_info *sta,
 				      struct radius_msg *msg)
 {
-	char buf[128];
+	char buf[RADIUS_CONNECT_INFO_LEN];
 
 	if (!hostapd_config_get_radius_attr(req_attr,
 					    RADIUS_ATTR_SERVICE_TYPE) &&
@@ -530,7 +558,7 @@ static int add_common_radius_sta_attr(struct hostapd_data *hapd,
 	if (sta->flags & WLAN_STA_PREAUTH) {
 		os_strlcpy(buf, "IEEE 802.11i Pre-Authentication",
 			   sizeof(buf));
-	} else {
+	} else if (!add_wifi_stats_connect_info(hapd, sta, buf, sizeof(buf))) {
 		os_snprintf(buf, sizeof(buf), "CONNECT %d%sMbps %s",
 			    radius_sta_rate(hapd, sta) / 2,
 			    (radius_sta_rate(hapd, sta) & 1) ? ".5" : "",
