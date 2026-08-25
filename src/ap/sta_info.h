@@ -111,6 +111,10 @@ struct dscp_policy_state {
 	bool pending_more;
 };
 
+#ifdef CONFIG_WIFI_STATS
+struct wifi_stats_sta_buf;
+#endif /* CONFIG_WIFI_STATS */
+
 struct sta_info {
 	struct sta_info *next; /* next entry in sta list */
 	struct sta_info *hnext; /* next entry in hash table list */
@@ -370,6 +374,10 @@ struct sta_info {
 	u8 unsolicited_dialog_token;
 	struct dscp_policy_state dscp_state;
 #endif /* CONFIG_ROBUST_AV */
+
+#ifdef CONFIG_WIFI_STATS
+	struct wifi_stats_sta_buf *wifi_stats;
+#endif /* CONFIG_WIFI_STATS */
 };
 
 
