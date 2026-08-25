@@ -38,6 +38,7 @@
 #include "ieee802_11.h"
 #include "ieee802_1x.h"
 #include "wpa_auth_kay.h"
+#include "wifi_stats.h"
 
 
 #ifdef CONFIG_HS20
@@ -500,7 +501,7 @@ static int add_common_radius_sta_attr(struct hostapd_data *hapd,
 				      struct sta_info *sta,
 				      struct radius_msg *msg)
 {
-	char buf[128];
+	char buf[WIFI_STATS_MAX_CONNECT_INFO_LEN + 1];
 
 	if (!hostapd_config_get_radius_attr(req_attr,
 					    RADIUS_ATTR_SERVICE_TYPE) &&
@@ -530,7 +531,7 @@ static int add_common_radius_sta_attr(struct hostapd_data *hapd,
 	if (sta->flags & WLAN_STA_PREAUTH) {
 		os_strlcpy(buf, "IEEE 802.11i Pre-Authentication",
 			   sizeof(buf));
-	} else {
+	} else if (wifi_stats_connect_info(hapd, sta, buf, sizeof(buf)) < 0) {
 		os_snprintf(buf, sizeof(buf), "CONNECT %d%sMbps %s",
 			    radius_sta_rate(hapd, sta) / 2,
 			    (radius_sta_rate(hapd, sta) & 1) ? ".5" : "",

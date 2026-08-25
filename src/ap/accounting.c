@@ -20,6 +20,7 @@
 #include "sta_info.h"
 #include "ap_drv_ops.h"
 #include "accounting.h"
+#include "wifi_stats.h"
 
 
 /* Default interval in seconds for polling TX/RX octets from the driver if
@@ -254,9 +255,13 @@ void accounting_sta_start(struct hostapd_data *hapd, struct sta_info *sta)
 			       hapd, sta);
 
 	msg = accounting_msg(hapd, sta, RADIUS_ACCT_STATUS_TYPE_START);
-	if (msg &&
-	    radius_client_send(hapd->radius, msg, RADIUS_ACCT, sta->addr) < 0)
-		radius_msg_free(msg);
+	if (msg) {
+		if (radius_client_send(hapd->radius, msg, RADIUS_ACCT,
+				       sta->addr) < 0)
+			radius_msg_free(msg);
+		else
+			wifi_stats_mark_signalled(hapd, sta);
+	}
 
 	sta->acct_session_started = 1;
 }
@@ -353,6 +358,8 @@ static void accounting_sta_report(struct hostapd_data *hapd,
 			       stop ? RADIUS_ACCT : RADIUS_ACCT_INTERIM,
 			       sta->addr) < 0)
 		goto fail;
+
+	wifi_stats_mark_signalled(hapd, sta);
 	return;
 
  fail:
