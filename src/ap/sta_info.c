@@ -39,6 +39,9 @@
 #include "sta_info.h"
 #include "vlan.h"
 #include "wps_hostapd.h"
+#ifdef CONFIG_WIFI_STATS
+#include "wifi_stats/wifi_stats.h"
+#endif /* CONFIG_WIFI_STATS */
 #include "robust_av.h"
 
 static void ap_sta_remove_in_other_bss(struct hostapd_data *hapd,
@@ -526,7 +529,8 @@ void ap_free_sta(struct hostapd_data *hapd, struct sta_info *sta)
 #endif /* CONFIG_PASN */
 
 #ifdef CONFIG_WIFI_STATS
-	sta->wifi_stats = NULL;
+	if (hapd->iface && hapd->iface->wifi_stats)
+		wifi_stats_forget_sta(hapd->iface->wifi_stats, sta->addr);
 #endif /* CONFIG_WIFI_STATS */
 
 	os_free(sta->ifname_wds);

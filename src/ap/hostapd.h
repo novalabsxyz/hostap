@@ -40,6 +40,10 @@ struct rsn_pmksa_cache_entry;
 struct mesh_conf;
 #endif /* CONFIG_MESH */
 
+#ifdef CONFIG_WIFI_STATS
+struct wifi_stats_ctx;
+#endif /* CONFIG_WIFI_STATS */
+
 #ifdef CONFIG_CTRL_IFACE_UDP
 #define CTRL_IFACE_COOKIE_LEN 8
 #endif /* CONFIG_CTRL_IFACE_UDP */
@@ -795,6 +799,10 @@ struct hostapd_iface {
 		bool data_valid;
 	} afc;
 #endif /* CONFIG_AFC */
+
+#ifdef CONFIG_WIFI_STATS
+	struct wifi_stats_ctx *wifi_stats;
+#endif /* CONFIG_WIFI_STATS */
 };
 
 /* hostapd.c */
