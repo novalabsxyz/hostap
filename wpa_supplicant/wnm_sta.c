@@ -9,6 +9,7 @@
 #include "utils/includes.h"
 
 #include "utils/common.h"
+#include "utils/eloop.h"
 #include "common/ieee802_11_defs.h"
 #include "common/ieee802_11_common.h"
 #include "common/wpa_ctrl.h"
@@ -48,6 +49,20 @@ static int ieee80211_11_set_tfs_ie(struct wpa_supplicant *wpa_s,
 	wpa_printf(MSG_DEBUG, "%s: TFS set operation %d", __func__, oper);
 
 	return wpa_drv_wnm_oper(wpa_s, oper, addr, (u8 *) buf, &len);
+}
+
+
+static void wnmsleep_mode_exit_timeout(void *eloop_ctx, void *sock_ctx)
+{
+	struct wpa_supplicant *wpa_s = eloop_ctx;
+
+	if (wpa_s->wpa_state <= WPA_ASSOCIATED ||
+	    wpa_s->wnmsleep_state != WNM_SLEEP_WAIT_RESP_EXIT)
+		return;
+
+	wpa_printf(MSG_INFO,
+		   "WNM: Timeout on WNM Sleep Mode Response (exit) - deauthenticate");
+	wpa_supplicant_deauthenticate(wpa_s, WLAN_REASON_DEAUTH_LEAVING);
 }
 
 
@@ -189,11 +204,17 @@ int ieee802_11_send_wnmsleep_req(struct wpa_supplicant *wpa_s,
 	res = wpa_drv_send_action(wpa_s, wpa_s->assoc_freq, 0, wpa_s->bssid,
 				  wpa_s->own_addr, wpa_s->bssid,
 				  &mgmt->u.action.category, len, 0);
-	if (res < 0)
+	if (res < 0) {
 		wpa_printf(MSG_DEBUG, "Failed to send WNM-Sleep Request "
 			   "(action=%d, intval=%d)", action, intval);
-	else
-		wpa_s->wnmsleep_used = 1;
+	} else if (action == WNM_SLEEP_MODE_ENTER) {
+		wpa_s->wnmsleep_state = WNM_SLEEP_WAIT_RESP_ENTER;
+	} else if (action == WNM_SLEEP_MODE_EXIT) {
+		wpa_s->wnmsleep_state = WNM_SLEEP_WAIT_RESP_EXIT;
+		eloop_cancel_timeout(wnmsleep_mode_exit_timeout, wpa_s, NULL);
+		eloop_register_timeout(5, 0, wnmsleep_mode_exit_timeout,
+				       wpa_s, NULL);
+	}
 
 	os_free(wnmsleep_ie);
 	os_free(wnmtfs_ie);
@@ -269,7 +290,8 @@ static void wnm_sleep_mode_exit_success(struct wpa_supplicant *wpa_s,
 			}
 			gtk_len = *(ptr + 4);
 			if (ptr[1] < 11 + gtk_len ||
-			    gtk_len < 5 || gtk_len > 32) {
+			    gtk_len !=
+			    wpa_cipher_key_len(wpa_s->group_cipher)) {
 				wpa_printf(MSG_DEBUG, "WNM: Invalid GTK "
 					   "subelem");
 				break;
@@ -278,27 +300,27 @@ static void wnm_sleep_mode_exit_success(struct wpa_supplicant *wpa_s,
 				wpa_s->wpa,
 				WNM_SLEEP_SUBELEM_GTK,
 				ptr);
-			ptr += 13 + gtk_len;
 		} else if (*ptr == WNM_SLEEP_SUBELEM_IGTK) {
-			if (ptr[1] < 2 + 6 + WPA_IGTK_LEN) {
+			if (ptr[1] < 2 + 6 +
+			    wpa_cipher_key_len(wpa_s->mgmt_group_cipher)) {
 				wpa_printf(MSG_DEBUG, "WNM: Too short IGTK "
 					   "subelem");
 				break;
 			}
 			wpa_wnmsleep_install_key(wpa_s->wpa,
 						 WNM_SLEEP_SUBELEM_IGTK, ptr);
-			ptr += 10 + WPA_IGTK_LEN;
 		} else if (*ptr == WNM_SLEEP_SUBELEM_BIGTK) {
-			if (ptr[1] < 2 + 6 + WPA_BIGTK_LEN) {
+			if (ptr[1] < 2 + 6 +
+			    wpa_cipher_key_len(wpa_s->mgmt_group_cipher)) {
 				wpa_printf(MSG_DEBUG,
 					   "WNM: Too short BIGTK subelem");
 				break;
 			}
 			wpa_wnmsleep_install_key(wpa_s->wpa,
 						 WNM_SLEEP_SUBELEM_BIGTK, ptr);
-			ptr += 10 + WPA_BIGTK_LEN;
 		} else
 			break; /* skip the loop */
+		ptr += 2 + ptr[1];
 	}
 }
 
@@ -323,7 +345,8 @@ static void ieee802_11_rx_wnmsleep_resp(struct wpa_supplicant *wpa_s,
 #endif /* CONFIG_OCV */
 	size_t left;
 
-	if (!wpa_s->wnmsleep_used) {
+	if (wpa_s->wnmsleep_state != WNM_SLEEP_WAIT_RESP_ENTER &&
+	    wpa_s->wnmsleep_state != WNM_SLEEP_WAIT_RESP_EXIT) {
 		wpa_printf(MSG_DEBUG,
 			   "WNM: Ignore WNM-Sleep Mode Response frame since WNM-Sleep Mode operation has not been requested");
 		return;
@@ -378,6 +401,16 @@ static void ieee802_11_rx_wnmsleep_resp(struct wpa_supplicant *wpa_s,
 		return;
 	}
 
+	if (!((wnmsleep_ie->action_type == WNM_SLEEP_MODE_ENTER &&
+	       wpa_s->wnmsleep_state == WNM_SLEEP_WAIT_RESP_ENTER) ||
+	      (wnmsleep_ie->action_type == WNM_SLEEP_MODE_EXIT &&
+	       wpa_s->wnmsleep_state == WNM_SLEEP_WAIT_RESP_EXIT))) {
+		wpa_printf(MSG_DEBUG,
+			   "WNM: Ignore WNM Sleep Mode Response frame with unexpected Action Type %u",
+			   wnmsleep_ie->action_type);
+		return;
+	}
+
 #ifdef CONFIG_OCV
 	if (wnmsleep_ie->action_type == WNM_SLEEP_MODE_EXIT &&
 	    wpa_sm_ocv_enabled(wpa_s->wpa)) {
@@ -399,7 +432,7 @@ static void ieee802_11_rx_wnmsleep_resp(struct wpa_supplicant *wpa_s,
 	}
 #endif /* CONFIG_OCV */
 
-	wpa_s->wnmsleep_used = 0;
+	wpa_s->wnmsleep_state = WNM_SLEEP_IDLE;
 
 	if (wnmsleep_ie->status == WNM_STATUS_SLEEP_ACCEPT ||
 	    wnmsleep_ie->status == WNM_STATUS_SLEEP_EXIT_ACCEPT_GTK_UPDATE) {
@@ -423,6 +456,13 @@ static void ieee802_11_rx_wnmsleep_resp(struct wpa_supplicant *wpa_s,
 			wpa_drv_wnm_oper(wpa_s, WNM_SLEEP_EXIT_FAIL,
 					 wpa_s->bssid, NULL, NULL);
 	}
+}
+
+
+void wnm_sleep_mode_clear(struct wpa_supplicant *wpa_s)
+{
+	eloop_cancel_timeout(wnmsleep_mode_exit_timeout, wpa_s, NULL);
+	wpa_s->wnmsleep_state = WNM_SLEEP_IDLE;
 }
 
 

@@ -554,6 +554,9 @@ def _eht_mld_owe_two_links(dev, apdev, second_link_disabled=False,
             ev = wpas.wait_event(["CTRL-EVENT-DISCONNECTED"], timeout=65)
             if ev is not None:
                 raise Exception("Unexpected disconnection")
+        else:
+            wpas.request("DISCONNECT")
+            wpas.wait_disconnected()
 
 def test_eht_mld_owe_two_links_one_disabled(dev, apdev):
     """AP MLD with MLD client OWE connection when one of the AP MLD links is disabled"""
@@ -562,6 +565,85 @@ def test_eht_mld_owe_two_links_one_disabled(dev, apdev):
 def test_eht_mld_owe_two_links_only_one_negotiated(dev, apdev):
     """AP MLD with MLD client OWE connection when only one of the links is negotiated"""
     _eht_mld_owe_two_links(dev, apdev, only_one_link=True)
+
+def _eht_mld_owe(dev, apdev, links):
+    with HWSimRadio(use_mlo=True) as (hapd_radio, hapd_iface), \
+        HWSimRadio(use_mlo=True) as (wpas_radio, wpas_iface):
+
+        wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
+        wpas.interface_add(wpas_iface)
+        check_owe_capab(wpas)
+
+        ssid = "mld_ap_owe"
+        params = eht_mld_ap_wpa2_params(ssid, key_mgmt="OWE", mfp="2")
+
+        freqs = []
+        hapds = []
+        for link in range(links):
+            freqs.append(str(2412 + 5 * link))
+            params["channel"] = str(link + 1)
+            hapds.append(eht_mld_enable_ap(hapd_iface, link, params))
+        hapd0 = hapds[0]
+
+        # Check legacy client connection
+        dev[0].connect(ssid, scan_freq="2412", key_mgmt="OWE", ieee80211w="2")
+
+        wpas.connect(ssid, scan_freq=" ".join(freqs), key_mgmt="OWE",
+                     ieee80211w="2")
+
+        exp_links = 2 ** links - 1
+        eht_verify_status(wpas, hapd0, 2412, 20, is_ht=True, mld=True,
+                          valid_links=exp_links, active_links=exp_links)
+        eht_verify_wifi_version(wpas)
+        for h in hapds:
+            traffic_test(wpas, h)
+
+        wpas.request("DISCONNECT")
+        wpas.wait_disconnected()
+
+def test_eht_mld_owe_1_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 1 link"""
+    _eht_mld_owe(dev, apdev, 1)
+
+def test_eht_mld_owe_2_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 2 link"""
+    _eht_mld_owe(dev, apdev, 2)
+
+def test_eht_mld_owe_3_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 3 link"""
+    _eht_mld_owe(dev, apdev, 3)
+
+def test_eht_mld_owe_4_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 4 link"""
+    _eht_mld_owe(dev, apdev, 4)
+
+def test_eht_mld_owe_5_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 5 link"""
+    _eht_mld_owe(dev, apdev, 5)
+
+def test_eht_mld_owe_6_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 6 link"""
+    _eht_mld_owe(dev, apdev, 6)
+
+def test_eht_mld_owe_7_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 7 link"""
+    _eht_mld_owe(dev, apdev, 7)
+
+def test_eht_mld_owe_8_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 8 link"""
+    _eht_mld_owe(dev, apdev, 8)
+
+def test_eht_mld_owe_9_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 9 link"""
+    _eht_mld_owe(dev, apdev, 9)
+
+def test_eht_mld_owe_10_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 10 link"""
+    _eht_mld_owe(dev, apdev, 10)
+
+def test_eht_mld_owe_11_link(dev, apdev):
+    """AP MLD with MLD client OWE connection - 11 link"""
+    _eht_mld_owe(dev, apdev, 11)
 
 def test_eht_mld_sae_single_link(dev, apdev):
     """EHT MLD AP with MLD client SAE H2E connection using single link"""
@@ -1053,6 +1135,55 @@ def test_eht_mld_connect_probes(dev, apdev, params):
 def test_eht_mld_connect_probes_hidden(dev, apdev, params):
     """MLD client sends ML probe with SSID to connect to not discovered links"""
     _eht_mld_connect_probes(params, hidden=True)
+
+def test_eht_mld_reconnect_stale_links(dev, apdev, params):
+    """MLD client uses ML probe to refresh stale link entries on reconnection"""
+    with HWSimRadio(use_mlo=True) as (hapd_radio, hapd_iface), \
+        HWSimRadio(use_mlo=True) as (wpas_radio, wpas_iface):
+
+        wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
+        wpas.interface_add(wpas_iface)
+        check_sae_capab(wpas)
+
+        ssid = "mld_ap"
+        passphrase = 'qwertyuiop'
+        link_params = eht_mld_ap_wpa2_params(ssid, passphrase, mfp="2",
+                                             key_mgmt="SAE", pwe='2')
+        link_params['channel'] = '1'
+        link_params['bssid'] = '00:11:22:33:44:01'
+        hapd0 = eht_mld_enable_ap(hapd_iface, 0, link_params)
+
+        link_params['channel'] = '6'
+        link_params['bssid'] = '00:11:22:33:44:02'
+        hapd1 = eht_mld_enable_ap(hapd_iface, 1, link_params)
+
+        wpas.set("sae_pwe", "1")
+        # Make sure the BSS entries do not get removed from wpa_supplicant's
+        # BSS table while aging them below, so that the stale entry handling
+        # (and not the missing entry handling) gets exercised.
+        wpas.set("bss_expiration_age", "3600")
+        wpas.connect(ssid, sae_password=passphrase, ieee80211w="2",
+                     key_mgmt="SAE", scan_freq="2412")
+        eht_verify_status(wpas, hapd0, 2412, 20, is_ht=True, mld=True,
+                          valid_links=3, active_links=3)
+
+        wpas.request("DISCONNECT")
+        wpas.wait_disconnected()
+
+        # Age the BSS table entries beyond the kernel's freshness limit for
+        # association (IEEE80211_SCAN_RESULT_EXPIRE = 30 seconds) while
+        # keeping them in wpa_supplicant's BSS table (bss_expiration_age is
+        # 180 seconds by default). The reconnection scan covers only the
+        # first link (scan_freq=2412), so the second link needs to be
+        # refreshed with an ML probe before association can succeed.
+        time.sleep(35)
+
+        wpas.request("RECONNECT")
+        wpas.wait_connected()
+        eht_verify_status(wpas, hapd0, 2412, 20, is_ht=True, mld=True,
+                          valid_links=3, active_links=3)
+        traffic_test(wpas, hapd0)
+        traffic_test(wpas, hapd1)
 
 def test_eht_tx_link_rejected_connect_other(dev, apdev, params):
     """EHT MLD AP with MLD client being rejected on TX link, but then connecting on second link"""
@@ -2940,6 +3071,100 @@ def test_eht_ml_setup_reconfig_AB_A_AB(dev, apdev, params):
                                  timeout=2)
             if ev is None:
                 raise Exception("GTK rekey timed out after link addition")
+
+def test_eht_ml_setup_reconfig_proto(dev, apdev, params):
+    """EHT MLD with two links and link reconfiguration protocol testing"""
+    with HWSimRadio(use_mlo=True) as (hapd_radio, hapd_iface), \
+         HWSimRadio(use_mlo=True) as (wpas_radio, wpas_iface):
+
+        wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
+        wpas.interface_add(wpas_iface)
+        check_sae_capab(wpas)
+
+        # Associate AP and STA in two links
+        ssid = "eht_ml_reconf"
+        passphrase = 'qwertyuiop'
+
+        ap_params = eht_mld_ap_wpa2_params(ssid, passphrase,
+                                           key_mgmt="SAE", mfp="2", pwe='1')
+        hapd0 = eht_mld_enable_ap(hapd_iface, 0, ap_params)
+
+        ap_params['channel'] = '6'
+        hapd1 = eht_mld_enable_ap(hapd_iface, 1, ap_params)
+
+        wpas.set("sae_pwe", "1")
+        wpas.connect(ssid, sae_password=passphrase, scan_freq="2412 2437",
+                     key_mgmt="SAE", ieee80211w="2")
+
+        eht_verify_status(wpas, hapd0, 2412, 20, is_ht=True, mld=True,
+                          valid_links=3, active_links=3)
+
+        hapd0.set("ext_mgmt_frame_handling", "1")
+        hapd1.set("ext_mgmt_frame_handling", "1")
+
+        # Prepare and send ML Setup reconfig link removal for link id=1
+        if "OK" not in wpas.request("SETUP_LINK_RECONFIG delete=1"):
+            raise Exception("Failed to request link reconfig removal")
+
+        for i in wpas.request("MLO_STATUS").splitlines():
+            name, val = i.split('=')
+            if name == 'sta_link_addr':
+                link_addr = val.replace(':', '')
+                break
+
+        # Modify the Link Reconfiguration Request frame to request both links
+        # to be deleted.
+        while True:
+            req0 = hapd0.mgmt_rx()
+            if req0 and req0['subtype'] == 13:
+                frame = req0['frame']
+                hdr = frame[0:24]
+                hdr2 = frame[24:27]
+                mle = frame[27:50]
+                prof = binascii.unhexlify("0009a00107" + link_addr)
+                mle2 = struct.pack('BB', mle[0], mle[1] + len(prof)) + mle[2:] + prof
+                req = binascii.hexlify(hdr + hdr2 + mle2).decode()
+                hapd0.request("MGMT_RX_PROCESS freq=2412 datarate=0 ssi_signal=-30 frame=" + req)
+                ev = hapd0.wait_event(["MGMT-TX-STATUS"], timeout=5)
+                if ev is None:
+                    raise Exception("Management frame TX status not reported")
+                cmd = "MGMT_TX_STATUS_PROCESS %s" % (" ".join(ev.split(' ')[1:4]))
+                if "OK" not in hapd0.request(cmd):
+                    raise Exception("MGMT_TX_STATUS_PROCESS failed")
+                break
+            req1 = hapd1.mgmt_rx()
+            if req1 and req1['subtype'] == 13:
+                frame = req0['frame']
+                hdr = frame[0:24]
+                hdr2 = frame[24:27]
+                mle = frame[27:50]
+                prof = binascii.unhexlify("0009a00107" + link_addr)
+                mle2 = struct.pack('BB', mle[0], mle[1] + len(prof)) + mle[2:] + prof
+                req = binascii.hexlify(hdr + hdr2 + mle2).decode()
+                hapd1.request("MGMT_RX_PROCESS freq=2437 datarate=0 ssi_signal=-30 frame=" + req)
+                ev = hapd1.wait_event(["MGMT-TX-STATUS"], timeout=5)
+                if ev is None:
+                    raise Exception("Management frame TX status not reported")
+                cmd = "MGMT_TX_STATUS_PROCESS %s" % (" ".join(ev.split(' ')[1:4]))
+                if "OK" not in hapd1.request(cmd):
+                    raise Exception("MGMT_TX_STATUS_PROCESS failed")
+                break
+            if not req0 and not req1:
+                raise Exception("No link reconfig request seen")
+
+        hapd0.set("ext_mgmt_frame_handling", "0")
+        hapd1.set("ext_mgmt_frame_handling", "0")
+
+        # hostapd rejects the link 0 deletion request since that would have
+        # left no remaining links. Verify the response is send and received.
+
+        ev = hapd0.wait_event(["CTRL-EVENT-LINK-STA-REMOVED"], timeout=10)
+        if ev is None:
+            raise Exception("Link STA removal event not seen")
+
+        ev = wpas.wait_event(["CTRL-EVENT-LINK-RECONFIG"], timeout=1)
+        if ev is None:
+            raise Exception("Link removal event not seen")
 
 def test_eht_mld_and_autogo(dev, apdev):
     """EHT MLD connection and autonomous P2P GO on the station device"""

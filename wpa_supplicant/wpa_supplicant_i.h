@@ -279,6 +279,11 @@ struct wpa_params {
 	 * proc_coord_dir - Process coordination directory
 	 */
 	const char *proc_coord_dir;
+
+	/**
+	 * conf_file_prefix - Required configuration file name prefix
+	 */
+	const char *conf_file_prefix;
 };
 
 struct p2p_srv_bonjour {
@@ -1047,7 +1052,6 @@ struct wpa_supplicant {
 	unsigned int reattach:1; /* reassociation to the same BSS requested */
 	unsigned int mac_addr_changed:1;
 	unsigned int added_vif:1;
-	unsigned int wnmsleep_used:1;
 	unsigned int owe_transition_select:1;
 	unsigned int owe_transition_search:1;
 	unsigned int connection_set:1;
@@ -1057,6 +1061,13 @@ struct wpa_supplicant {
 	unsigned int connection_eht:1;
 	unsigned int connection_uhr:1;
 	unsigned int disable_mbo_oce:1;
+
+	enum wnmsleep_state {
+		WNM_SLEEP_IDLE,
+		WNM_SLEEP_WAIT_RESP_ENTER,
+		WNM_SLEEP_WAIT_RESP_EXIT,
+	} wnmsleep_state;
+
 	u8 connection_max_nss_rx;
 	u8 connection_max_nss_tx;
 	enum chan_width connection_channel_bandwidth;
@@ -1733,7 +1744,10 @@ struct wpa_supplicant {
 	bool scs_reconfigure;
 	bool ext_auth_to_same_bss; /* Whether external authentication has been
 				    * completed successfully with the BSS that
-				    * we are already associated with. */
+				    * we are already associated with, or an
+				    * equivalent driver-indicated roam
+				    * authentication status (EVENT_ROAM_STATUS)
+				    * has been received for that BSS. */
 
 	bool nan_mgmt;
 	bool nan_data;

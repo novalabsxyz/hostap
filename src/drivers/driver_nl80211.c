@@ -7942,6 +7942,9 @@ static int nl80211_connect_ext(struct i802_bss *bss,
 					QCA_CONNECT_EXT_FEATURE_OKC_PMKID_IN_ASSOC);
 	}
 
+	wpa_printf(MSG_DEBUG, "- Roam status synchronization support");
+	connect_ext_feature_set(features, QCA_CONNECT_EXT_FEATURE_ROAM_STATUS);
+
 	if (nla_put(msg, QCA_WLAN_VENDOR_ATTR_CONNECT_EXT_FEATURES,
 		    sizeof(features), features))
 		goto fail;

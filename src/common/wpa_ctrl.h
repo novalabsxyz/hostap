@@ -524,6 +524,9 @@ extern "C" {
  */
 #define PR_PEER_FOUND "PR-PEER-FOUND "
 
+#define AFC_EVENT_RECEIVED "AFC-EVENT-RECEIVED "
+#define AFC_EVENT_COMPLETE "AFC-EVENT-COMPLETE "
+
 /* BSS command information masks */
 
 #define WPA_BSS_MASK_ALL		0xFFFDFFFF

@@ -185,6 +185,8 @@ void hostapd_config_defaults_bss(struct hostapd_bss_config *bss)
 	bss->pmksa_caching_privacy = 0;
 	bss->eap_using_authentication_frames = 0;
 #endif /* CONFIG_ENC_ASSOC */
+
+	bss->gas_max_peers = 10;
 }
 
 
@@ -315,6 +317,14 @@ struct hostapd_config * hostapd_config_defaults(void)
 	hostapd_set_and_check_bw320_offset(conf, 0);
 
 	conf->disable_mcs15_rx = true;
+
+#ifdef CONFIG_WIFI_STATS
+	conf->wifi_stats_interval = WIFI_STATS_DEFAULT_INTERVAL;
+	conf->wifi_stats_wba_window = WIFI_STATS_DEFAULT_WINDOW;
+	conf->wifi_stats_wba_enabled = 1;
+	conf->wifi_stats_ewma_weight = WIFI_STATS_DEFAULT_EWMA_WEIGHT;
+	conf->wifi_stats_span = WIFI_STATS_SPAN_REPORT;
+#endif /* CONFIG_WIFI_STATS */
 
 	return conf;
 }
@@ -1027,6 +1037,22 @@ void hostapd_config_free_bss(struct hostapd_bss_config *conf)
 }
 
 
+#ifdef CONFIG_AFC
+void hostapd_config_free_afc_cert_ids(struct hostapd_config *conf)
+{
+	unsigned int i;
+
+	for (i = 0; i < conf->afc.n_cert_ids; i++) {
+		os_free(conf->afc.cert_ids[i].ruleset);
+		os_free(conf->afc.cert_ids[i].id);
+	}
+	os_free(conf->afc.cert_ids);
+	conf->afc.cert_ids = NULL;
+	conf->afc.n_cert_ids = 0;
+}
+#endif /* CONFIG_AFC */
+
+
 /**
  * hostapd_config_free - Free hostapd configuration
  * @conf: Configuration data from hostapd_config_read().
@@ -1049,6 +1075,18 @@ void hostapd_config_free(struct hostapd_config *conf)
 #endif /* CONFIG_ACS */
 	wpabuf_free(conf->lci);
 	wpabuf_free(conf->civic);
+#ifdef CONFIG_AFC
+	os_free(conf->afc.socket);
+	os_free(conf->afc.request.version);
+	os_free(conf->afc.request.sn);
+	hostapd_config_free_afc_cert_ids(conf);
+	os_free(conf->afc.cert_ids);
+	os_free(conf->afc.location.height_type);
+	os_free(conf->afc.location.linear_polygon_data);
+	os_free(conf->afc.location.radial_polygon_data);
+	os_free(conf->afc.freqs.range);
+	os_free(conf->afc.op_class);
+#endif /* CONFIG_AFC */
 
 	os_free(conf);
 }

@@ -9201,7 +9201,7 @@ static void wpa_supplicant_ctrl_iface_flush(struct wpa_supplicant *wpa_s)
 	}
 
 	eloop_cancel_timeout(wpas_network_reenabled, wpa_s, NULL);
-	wpa_s->wnmsleep_used = 0;
+	wnm_sleep_mode_clear(wpa_s);
 
 #ifdef CONFIG_SME
 	wpa_s->sme.last_unprot_disconnect.sec = 0;

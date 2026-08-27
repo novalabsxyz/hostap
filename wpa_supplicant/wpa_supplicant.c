@@ -75,7 +75,7 @@
 
 const char *const wpa_supplicant_version =
 "wpa_supplicant v" VERSION_STR "\n"
-"Copyright (c) 2003-2024, Jouni Malinen <j@w1.fi> and contributors";
+"Copyright (c) 2003-2026, Jouni Malinen <j@w1.fi> and contributors";
 
 const char *const wpa_supplicant_license =
 "This software may be distributed under the terms of the BSD license.\n"
@@ -780,6 +780,7 @@ static void wpa_supplicant_cleanup(struct wpa_supplicant *wpa_s)
 
 	wnm_bss_keep_alive_deinit(wpa_s);
 	wnm_btm_reset(wpa_s);
+	wnm_sleep_mode_clear(wpa_s);
 
 	ext_password_deinit(wpa_s->ext_pw);
 	wpa_s->ext_pw = NULL;
@@ -889,12 +890,33 @@ void wpa_clear_keys(struct wpa_supplicant *wpa_s, const u8 *addr)
 {
 	int i, max = 6;
 
-	/* MLME-DELETEKEYS.request */
-	for (i = 0; i < max; i++) {
-		if (wpa_s->keys_cleared & BIT(i))
-			continue;
-		wpa_drv_set_key(wpa_s, -1, WPA_ALG_NONE, NULL, i, 0, NULL, 0,
-				NULL, 0, KEY_FLAG_GROUP);
+	/* MLME-DELETEKEYS.request
+	 *
+	 * For still associated MLO connections, group keys are per-link and at
+	 * least in the case of Linux nl80211 interface, the cfg80211 validator
+	 * rejects DEL_KEY for group keys with link_id=-1 when wdev->valid_links
+	 * is set. Iterate over each valid link and pass the corresponding
+	 * link_id so the keys are properly cleared.
+	 */
+	if (wpa_s->valid_links && wpa_s->wpa_state > WPA_ASSOCIATED) {
+		int link_id;
+
+		for_each_link(wpa_s->valid_links, link_id) {
+			for (i = 0; i < max; i++) {
+				if (wpa_s->keys_cleared & BIT(i))
+					continue;
+				wpa_drv_set_key(wpa_s, link_id, WPA_ALG_NONE,
+						NULL, i, 0, NULL, 0,
+						NULL, 0, KEY_FLAG_GROUP);
+			}
+		}
+	} else {
+		for (i = 0; i < max; i++) {
+			if (wpa_s->keys_cleared & BIT(i))
+				continue;
+			wpa_drv_set_key(wpa_s, -1, WPA_ALG_NONE, NULL, i, 0,
+					NULL, 0, NULL, 0, KEY_FLAG_GROUP);
+		}
 	}
 	/* Pairwise Key ID 1 for Extended Key ID is tracked in bit 15 */
 	if (~wpa_s->keys_cleared & (BIT(0) | BIT(15)) && addr &&
@@ -7895,6 +7917,8 @@ static int wpa_supplicant_init_iface(struct wpa_supplicant *wpa_s,
 
 	if (iface->confname) {
 #ifdef CONFIG_BACKEND_FILE
+		const char *prefix = wpa_s->global->params.conf_file_prefix;
+
 		wpa_s->confname = os_rel2abs_path(iface->confname);
 		if (wpa_s->confname == NULL) {
 			wpa_printf(MSG_ERROR, "Failed to get absolute path "
@@ -7904,6 +7928,20 @@ static int wpa_supplicant_init_iface(struct wpa_supplicant *wpa_s,
 		}
 		wpa_printf(MSG_DEBUG, "Configuration file '%s' -> '%s'",
 			   iface->confname, wpa_s->confname);
+		if (prefix &&
+		    os_strncmp(wpa_s->confname, prefix,
+			       os_strlen(prefix)) != 0)	{
+			wpa_printf(MSG_ERROR,
+				   "Specified configuration file (%s) does not start with the required prefix (%s)",
+				   wpa_s->confname, prefix);
+			return -1;
+		}
+		if (prefix && os_strstr(wpa_s->confname, "/../")) {
+			wpa_printf(MSG_ERROR,
+				   "Specified configuration file (%s) has /../ in it",
+				   wpa_s->confname);
+			return -1;
+		}
 #else /* CONFIG_BACKEND_FILE */
 		wpa_s->confname = os_strdup(iface->confname);
 #endif /* CONFIG_BACKEND_FILE */
@@ -8776,6 +8814,7 @@ struct wpa_global * wpa_supplicant_init(struct wpa_params *params)
 	global->params.wait_for_monitor = params->wait_for_monitor;
 	global->params.dbus_ctrl_interface = params->dbus_ctrl_interface;
 	global->params.show_details = params->show_details;
+	global->params.conf_file_prefix = params->conf_file_prefix;
 
 	if (params->pid_file) {
 		global->params.pid_file = os_strdup(params->pid_file);

@@ -573,6 +573,14 @@ u8 * hostapd_eid_eht_basic_ml_common(struct hostapd_data *hapd,
 
 		total_len = sta_info_len + link->resp_sta_profile_len;
 
+		if (wpabuf_tailroom(buf) < 100 + total_len &&
+		    wpabuf_resize(&buf, 100 + total_len) < 0) {
+			wpa_printf(MSG_ERROR,
+				   "MLD: Could not allocate buffer for constructing MLE");
+			wpabuf_free(buf);
+			return eid;
+		}
+
 		/* Per-STA Profile subelement */
 		wpabuf_put_u8(buf, MULTI_LINK_SUB_ELEM_ID_PER_STA_PROFILE);
 
@@ -1736,9 +1744,10 @@ void hostapd_link_reconf_resp_tx_status(struct hostapd_data *hapd,
 			if (i == MAX_NUM_MLD_LINKS) {
 				wpa_printf(MSG_INFO,
 					   "MLD: No new assoc STA could be found; disconnect STA");
-				hostapd_notif_disassoc_mld(assoc_hapd, sta,
-							   sta->addr);
-				goto exit;
+				hostapd_notif_disassoc_mld(assoc_hapd,
+							   assoc_sta,
+							   assoc_sta->addr);
+				return;
 			}
 			wpa_printf(MSG_DEBUG, "MLD: New assoc link=%d", i);
 
@@ -2207,6 +2216,9 @@ hostapd_parse_link_reconf_req_sta_profile(struct hostapd_data *hapd,
 	int ret = -1;
 	u16 status;
 
+	wpa_hexdump(MSG_MSGDUMP, "MLD: Link Reconfig Request subelement",
+		    buf, len);
+
 	if (len < sizeof(*elem) + 2UL)
 		goto out;
 
@@ -2309,6 +2321,7 @@ hostapd_parse_link_reconf_req_sta_profile(struct hostapd_data *hapd,
 	}
 
 	sta_info_len = *sta_info;
+	wpa_hexdump(MSG_MSGDUMP, "MLD: STA Info", sta_info, sta_info_len);
 
 	os_memcpy(sta_addr, sta_info + 1, ETH_ALEN);
 	wpa_printf(MSG_DEBUG, "MLD: Link STA addr=" MACSTR, MAC2STR(sta_addr));
@@ -2384,6 +2397,10 @@ hostapd_parse_link_reconf_req_sta_profile(struct hostapd_data *hapd,
 	ret = 0;
 
 add_to_list:
+	if (sta_info && sta_prof_len)
+		wpa_hexdump(MSG_MSGDUMP, "MLD: STA Profile",
+			    sta_info, sta_prof_len);
+
 	info = os_zalloc(sizeof(struct link_reconf_req_info) + sta_prof_len);
 	if (!info) {
 		wpa_printf(MSG_DEBUG, "MLD: Failed to allocate request info");

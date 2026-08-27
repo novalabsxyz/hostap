@@ -504,11 +504,11 @@ def test_p2p_auto_go_and_client_join_sae(dev, apdev):
     dev[0].wait_go_ending_session()
     dev[0].dump_monitor()
 
-def test_p2p_pairing_verification(dev, apdev):
+def test_p2p_pairing_verification(dev, apdev, params):
     """P2P Pairing with Verification"""
 
     """wpa_supplicant config file for pairing verification"""
-    config = "/tmp/test_p2p.conf"
+    config = os.path.join(params['logdir'], 'p2p_pairing_verification.conf')
     if os.path.exists(config):
         os.remove(config)
 

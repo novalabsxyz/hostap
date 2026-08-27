@@ -113,6 +113,66 @@ static bool sme_is_ml_auth(struct wpa_supplicant *wpa_s, bool external)
 	return external ? wpa_s->sme.ext_ml_auth : wpa_s->valid_links;
 }
 
+
+static int sme_get_pmk_for_1x_auth(struct wpa_supplicant *wpa_s,
+				    const u8 *pmkid, bool external,
+				    u8 *pmk_buf, size_t *pmk_len)
+{
+	struct rsn_pmksa_cache *pmksa_cache;
+	struct rsn_pmksa_cache_entry *entry;
+	const u8 *peer_addr;
+	struct wpa_ssid *ssid;
+	int key_mgmt;
+	size_t len;
+	int res;
+
+	peer_addr = sme_get_peer_addr(wpa_s, external);
+	key_mgmt = sme_get_key_mgmt(wpa_s, external);
+	ssid = wpa_s->sme.ext_auth_wpa_ssid ?
+		wpa_s->sme.ext_auth_wpa_ssid : wpa_s->current_ssid;
+
+	pmksa_cache = wpa_sm_get_pmksa_cache(wpa_s->wpa);
+	if (!pmksa_cache) {
+		wpa_msg(wpa_s, MSG_DEBUG,
+			"IEEE 802.1X: No PMKSA cache available");
+		return -1;
+	}
+
+	if (pmkid) {
+		entry = pmksa_cache_get(pmksa_cache, peer_addr,	wpa_s->own_addr,
+					pmkid, ssid, key_mgmt);
+		if (!entry) {
+			wpa_msg(wpa_s, MSG_DEBUG,
+				"IEEE 802.1X: No PMKSA cache entry found for the given PMKID");
+			return -1;
+		}
+
+		os_memcpy(pmk_buf, entry->pmk, entry->pmk_len);
+		*pmk_len = entry->pmk_len;
+		return 0;
+	}
+
+	if (wpa_key_mgmt_sha384(key_mgmt))
+		len = PMK_LEN_SUITE_B_192;
+	else
+		len = PMK_LEN;
+
+	res = eapol_sm_get_key(wpa_s->eapol, pmk_buf, len);
+	if (res) {
+		wpa_msg(wpa_s, MSG_INFO,
+			"IEEE 802.1X: Failed to get MSK from EAP state machine");
+		return -1;
+	}
+
+	*pmk_len = len;
+
+	pmksa_cache_add(pmksa_cache, pmk_buf, len, NULL, NULL, 0, peer_addr,
+			wpa_s->own_addr, ssid, key_mgmt, NULL,
+			WLAN_AUTH_802_1X);
+
+	return 0;
+}
+
 #endif /* CONFIG_IEEE8021X_AUTH */
 
 
@@ -3685,7 +3745,7 @@ static void sme_process_802_1x_auth_response(struct wpa_supplicant *wpa_s,
 	    wpa_s->auth_1x->pmkid_found) {
 		if (wpa_s->auth_1x->derive_ptk) {
 			struct wpa_ptk ptk;
-			const u8 *pmk;
+			u8 pmk[PMK_LEN_MAX];
 			size_t pmk_len;
 			size_t kdk_len;
 			static const u8 zero[6] = { 0 };
@@ -3694,11 +3754,11 @@ static void sme_process_802_1x_auth_response(struct wpa_supplicant *wpa_s,
 
 			pairwise_cipher = sme_get_pairwise_cipher(wpa_s,
 								  external);
-			pmk = wpa_sm_get_pmk(wpa_s->wpa, peer_addr,
-					     wpa_s->auth_1x->pmkid_found ?
-					     wpa_s->auth_1x->pmkid :
-					     NULL, &pmk_len);
-			if (!pmk) {
+			if (sme_get_pmk_for_1x_auth(
+				    wpa_s,
+				    wpa_s->auth_1x->pmkid_found ?
+				    wpa_s->auth_1x->pmkid : NULL,
+				    external, pmk, &pmk_len) < 0) {
 				wpa_msg(wpa_s, MSG_INFO,
 					"IEEE 802.1X: Failed to get PMK");
 				goto fail;
@@ -3717,8 +3777,11 @@ static void sme_process_802_1x_auth_response(struct wpa_supplicant *wpa_s,
 				    &ptk, kdk_len) < 0) {
 				wpa_msg(wpa_s, MSG_INFO,
 					"SME: PTK derivation failed");
+				forced_memzero(pmk, PMK_LEN_MAX);
 				goto fail;
 			}
+
+			forced_memzero(pmk, PMK_LEN_MAX);
 
 			/* Clear DHss after successful PTK derivation */
 			wpabuf_clear_free(wpa_s->auth_1x->dhss);
@@ -4947,8 +5010,9 @@ void sme_event_assoc_reject(struct wpa_supplicant *wpa_s,
 		else
 			aa = NULL;
 
-		wpa_sm_pmksa_cache_flush_addr(wpa_s->wpa, wpa_s->current_ssid,
-					      aa);
+		if (aa)
+			wpa_sm_pmksa_cache_flush_addr(wpa_s->wpa,
+						      wpa_s->current_ssid, aa);
 		if (wpa_s->current_bss) {
 			struct wpa_ssid *ssid = wpa_s->current_ssid;
 
@@ -5016,6 +5080,40 @@ void sme_event_assoc_timed_out(struct wpa_supplicant *wpa_s,
 	wpa_dbg(wpa_s, MSG_DEBUG, "SME: Association timed out");
 	wpas_connection_failed(wpa_s, wpa_s->pending_bssid, NULL);
 	wpa_supplicant_mark_disassoc(wpa_s);
+}
+
+
+void sme_event_deauth(struct wpa_supplicant *wpa_s, struct deauth_info *info)
+{
+#ifdef CONFIG_SAE
+	const u8 *aa;
+
+	/* Some APs reject a (Re)Association Request frame that tries to use
+	 * PMKSA caching by deauthenticating the STA with reason code 9
+	 * (STA_REQ_ASSOC_WITHOUT_AUTH) instead of responding to it with an
+	 * error status code. Drop the PMKSA cache entry for that AP in that
+	 * case so that the next attempt uses a full SAE authentication
+	 * instead of finding the same PMKSA cache entry again and repeating
+	 * the same failure. */
+	if (!wpa_s->sme.sae_pmksa_caching || !info || info->locally_generated ||
+	    info->reason_code != WLAN_REASON_STA_REQ_ASSOC_WITHOUT_AUTH ||
+	    wpa_s->wpa_state != WPA_ASSOCIATING || !wpa_s->current_ssid ||
+	    !wpa_key_mgmt_sae(wpa_s->current_ssid->key_mgmt))
+		return;
+
+	if (wpa_s->valid_links)
+		aa = wpa_s->ap_mld_addr;
+	else if (wpa_s->current_bss)
+		aa = wpa_s->current_bss->bssid;
+	else
+		return; /* Do not flush the PMKSA cache entries of the full ESS
+			 * based on an unprotected frame from a single AP. */
+
+	wpa_dbg(wpa_s, MSG_DEBUG,
+		"SME: PMKSA caching attempt rejected with deauthentication - drop PMKSA cache entry");
+	wpa_sm_aborted_cached(wpa_s->wpa);
+	wpa_sm_pmksa_cache_flush_addr(wpa_s->wpa, wpa_s->current_ssid, aa);
+#endif /* CONFIG_SAE */
 }
 
 

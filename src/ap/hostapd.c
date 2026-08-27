@@ -23,6 +23,9 @@
 #include "eapol_auth/eapol_auth_sm.h"
 #include "eapol_auth/eapol_auth_sm_i.h"
 #include "fst/fst.h"
+#ifdef CONFIG_WIFI_STATS
+#include "wifi_stats/wifi_stats.h"
+#endif /* CONFIG_WIFI_STATS */
 #include "hostapd.h"
 #include "authsrv.h"
 #include "sta_info.h"
@@ -60,6 +63,9 @@
 
 
 static int hostapd_flush_old_stations(struct hostapd_data *hapd, u16 reason);
+#ifdef CONFIG_WIFI_STATS
+static void hostapd_reload_wifi_stats_config(struct hostapd_iface *iface);
+#endif /* CONFIG_WIFI_STATS */
 #ifdef CONFIG_WEP
 static int hostapd_setup_encryption(char *iface, struct hostapd_data *hapd);
 static int hostapd_broadcast_wep_clear(struct hostapd_data *hapd);
@@ -300,6 +306,9 @@ int hostapd_reload_config(struct hostapd_iface *iface)
 		hostapd_clear_old(iface);
 		for (j = 0; j < iface->num_bss; j++)
 			hostapd_reload_bss(iface->bss[j]);
+#ifdef CONFIG_WIFI_STATS
+		hostapd_reload_wifi_stats_config(iface);
+#endif /* CONFIG_WIFI_STATS */
 		return 0;
 	}
 
@@ -377,6 +386,9 @@ int hostapd_reload_config(struct hostapd_iface *iface)
 	iface->conf = newconf;
 	hostapd_config_free(oldconf);
 
+#ifdef CONFIG_WIFI_STATS
+	hostapd_reload_wifi_stats_config(iface);
+#endif /* CONFIG_WIFI_STATS */
 
 	return 0;
 }
@@ -794,6 +806,7 @@ void hostapd_cleanup_iface_partial(struct hostapd_iface *iface)
 static void hostapd_cleanup_iface(struct hostapd_iface *iface)
 {
 	wpa_printf(MSG_DEBUG, "%s(%p)", __func__, iface);
+	hostapd_afc_stop(iface);
 	eloop_cancel_timeout(hostapd_interface_setup_failure_handler, iface,
 			     NULL);
 
@@ -803,6 +816,12 @@ static void hostapd_cleanup_iface(struct hostapd_iface *iface)
 
 	os_free(iface->config_fname);
 	os_free(iface->bss);
+#ifdef CONFIG_AFC
+	wpabuf_free(iface->afc_request);
+	os_free(iface->afc_response);
+	os_free(iface->afc.chan_info_list);
+	os_free(iface->afc.freq_range);
+#endif /* CONFIG_AFC */
 	wpa_printf(MSG_DEBUG, "%s: free iface=%p", __func__, iface);
 	os_free(iface);
 }
@@ -2679,6 +2698,16 @@ static int hostapd_setup_interface_complete_sync(struct hostapd_iface *iface,
 		}
 #endif /* CONFIG_MESH */
 
+#ifdef CONFIG_IEEE80211AX
+		/* Check AFC for 6 GHz channels. */
+		res = hostapd_afc_handle_request(iface);
+		if (res <= 0) {
+			if (res < 0)
+				goto fail;
+			return res;
+		}
+#endif /* CONFIG_IEEE80211AX */
+
 		if (!delay_apply_cfg &&
 		    hostapd_set_freq(hapd, hapd->iconf->hw_mode, iface->freq,
 				     hapd->iconf->channel,
@@ -2803,6 +2832,11 @@ dfs_offload:
 		}
 	}
 #endif /* CONFIG_FST */
+
+#ifdef CONFIG_AFC
+	if (iface->afc.data_valid)
+		wpa_msg(iface->bss[0]->msg_ctx, MSG_INFO, AFC_EVENT_COMPLETE);
+#endif /* CONFIG_AFC */
 
 	hostapd_set_state(iface, HAPD_IFACE_ENABLED);
 	hostapd_owe_update_trans(iface);
@@ -2955,6 +2989,42 @@ int hostapd_setup_interface_complete(struct hostapd_iface *iface, int err)
 }
 
 
+#ifdef CONFIG_WIFI_STATS
+static void hostapd_reload_wifi_stats_config(struct hostapd_iface *iface)
+{
+	int i;
+
+	if (!iface || !iface->wifi_stats || !iface->conf)
+		return;
+
+	wifi_stats_set_params(iface->wifi_stats,
+			      iface->conf->wifi_stats_interval,
+			      iface->conf->wifi_stats_wba_window);
+	wifi_stats_set_span_mode(iface->wifi_stats,
+				 iface->conf->wifi_stats_span);
+	wifi_stats_set_ewma_weight(iface->wifi_stats,
+				   iface->conf->wifi_stats_ewma_weight);
+
+	for (i = 0; i < WIFI_STATS_METRIC_COUNT; i++) {
+		wifi_stats_agg_type_t algorithm;
+
+		if (iface->conf->wifi_stats_metrics[i].configured)
+			algorithm = iface->conf->wifi_stats_metrics[i].algorithm;
+		else
+			algorithm = wifi_stats_default_algorithm(i);
+		wifi_stats_set_metric_config(iface->wifi_stats, i, algorithm);
+	}
+
+	wpa_printf(MSG_DEBUG,
+		   "wifi_stats: Applied config (interval=%u window=%u span=%s weight=%u)",
+		   iface->conf->wifi_stats_interval,
+		   iface->conf->wifi_stats_wba_window,
+		   wifi_stats_span_mode_to_str(iface->conf->wifi_stats_span),
+		   iface->conf->wifi_stats_ewma_weight);
+}
+#endif /* CONFIG_WIFI_STATS */
+
+
 /**
  * hostapd_setup_interface - Setup of an interface
  * @iface: Pointer to interface data.
@@ -2983,6 +3053,20 @@ int hostapd_setup_interface(struct hostapd_iface *iface)
 			   iface->conf->bss[0]->iface);
 		return -1;
 	}
+
+#ifdef CONFIG_WIFI_STATS
+	if (!iface->wifi_stats)
+		iface->wifi_stats = wifi_stats_init();
+	if (!iface->wifi_stats) {
+		wpa_printf(MSG_WARNING,
+			   "wifi_stats: failed to allocate context, continuing without stats");
+	} else {
+		hostapd_reload_wifi_stats_config(iface);
+		if (wifi_stats_start_timer(iface->wifi_stats, iface) != 0)
+			wpa_printf(MSG_WARNING,
+				   "wifi_stats: Failed to start timer");
+	}
+#endif /* CONFIG_WIFI_STATS */
 
 	return 0;
 }
@@ -3063,6 +3147,7 @@ void hostapd_interface_deinit(struct hostapd_iface *iface)
 
 	hostapd_set_state(iface, HAPD_IFACE_DISABLED);
 
+	hostapd_afc_stop(iface);
 	eloop_cancel_timeout(channel_list_update_timeout, iface, NULL);
 	iface->wait_channel_update = 0;
 	iface->is_no_ir = false;
@@ -3084,6 +3169,13 @@ void hostapd_interface_deinit(struct hostapd_iface *iface)
 	hostapd_stop_setup_timers(iface);
 	eloop_cancel_timeout(ap_ht2040_timeout, iface, NULL);
 #endif /* NEED_AP_MLME */
+
+#ifdef CONFIG_WIFI_STATS
+	if (iface->wifi_stats) {
+		wifi_stats_deinit(iface->wifi_stats);
+		iface->wifi_stats = NULL;
+	}
+#endif /* CONFIG_WIFI_STATS */
 }
 
 
@@ -3693,6 +3785,10 @@ int hostapd_reload_iface(struct hostapd_iface *hapd_iface)
 	hostapd_clear_old(hapd_iface);
 	for (j = 0; j < hapd_iface->num_bss; j++)
 		hostapd_reload_bss(hapd_iface->bss[j]);
+
+#ifdef CONFIG_WIFI_STATS
+	hostapd_reload_wifi_stats_config(hapd_iface);
+#endif /* CONFIG_WIFI_STATS */
 
 	return 0;
 }

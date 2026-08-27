@@ -361,9 +361,22 @@ CFLAGS += -DCONFIG_IEEE80211AX
 OBJS += ../src/ap/ieee802_11_he.o
 endif
 
+ifdef CONFIG_IEEE80211AX
+ifdef CONFIG_AFC
+CFLAGS += -DCONFIG_AFC
+OBJS += ../src/ap/afc.o
+NEED_JSON=y
+endif
+endif
+
 ifdef CONFIG_MBO
 CFLAGS += -DCONFIG_MBO
 OBJS += ../src/ap/mbo_ap.o
+endif
+
+ifdef CONFIG_WIFI_STATS
+CFLAGS += -DCONFIG_WIFI_STATS
+OBJS += ../src/wifi_stats/wifi_stats.o
 endif
 
 include ../src/drivers/drivers.mak

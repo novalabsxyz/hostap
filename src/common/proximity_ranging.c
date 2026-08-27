@@ -1829,8 +1829,11 @@ static int pr_pasn_initialize(struct pr_data *pr, struct pr_device *dev,
 
 	/* As specified in Proximity Ranging Implementation Considerations for
 	 * P2P Operation D1.8, EDCA based ranging is only supported with
-	 * unauthenticated mode PASN with DH group 19. */
-	if (((pr->cfg->pasn_type & 0xc) && (dev->pr_caps.pasn_type & 0xc)) &&
+	 * unauthenticated mode PASN with DH group 19. Also default to group 19
+	 * for OOB discovery where peer capabilities are not known in advance.
+	 */
+	if (dev->discovery_type != PR_DISCOVERY_TYPE_OOB &&
+	    ((pr->cfg->pasn_type & 0xc) && (dev->pr_caps.pasn_type & 0xc)) &&
 	    ranging_type != PR_EDCA_BASED_RANGING) {
 		pasn->group = 20;
 		pasn->cipher = WPA_CIPHER_GCMP_256;
@@ -1886,7 +1889,11 @@ static int pr_pasn_initialize(struct pr_data *pr, struct pr_device *dev,
 		pasn->akmp = WPA_KEY_MGMT_PASN;
 	}
 
-	pasn->rsn_pairwise = pasn->cipher;
+	if (dev->discovery_type == PR_DISCOVERY_TYPE_OOB &&
+	    dev->pasn_role == PR_ROLE_PASN_RESPONDER)
+		pasn->rsn_pairwise = WPA_CIPHER_CCMP | WPA_CIPHER_GCMP_256;
+	else
+		pasn->rsn_pairwise = pasn->cipher;
 	pasn->wpa_key_mgmt = pasn->akmp;
 
 	rsnxe = pr_pasn_generate_rsnxe(pr, pasn->akmp);
@@ -2119,6 +2126,14 @@ int pr_pasn_auth_tx_status(struct pr_data *pr, const u8 *data, size_t data_len,
 		   MAC2STR(mgmt->da), acked);
 
 	ret = wpa_pasn_auth_tx_status(pasn, data, data_len, acked);
+
+	/*
+	 * Authentication frame 1 was not acked; return to caller to schedule a
+	 * retransmission. Preserve pasn->frame for the retry.
+	 */
+	if (ret == 2)
+		return ret;
+
 	if (ret == 1 && acked && pr->cfg->pasn_result)
 		pr->cfg->pasn_result(pr->cfg->cb_ctx, dev->ranging_role,
 				     dev->protocol_type, dev->final_op_class,
@@ -2158,6 +2173,23 @@ out:
 	pasn->frame = NULL;
 
 	return ret;
+}
+
+
+int pr_pasn_auth_retransmit(struct pr_data *pr, const u8 *addr)
+{
+	struct pr_device *dev;
+	struct pasn_data *pasn;
+
+	dev = pr_get_device(pr, addr);
+	if (!dev || !dev->pasn || !dev->pasn->frame)
+		return -1;
+
+	pasn = dev->pasn;
+	wpa_printf(MSG_DEBUG, "PR PASN: retransmit Authentication frame 1 to "
+		   MACSTR, MAC2STR(addr));
+	return pasn->send_mgmt(pasn->cb_ctx, wpabuf_head(pasn->frame),
+			       wpabuf_len(pasn->frame), 0, pasn->freq, 1000);
 }
 
 
@@ -2238,6 +2270,9 @@ static int pr_process_pasn_ranging_wrapper(struct pr_data *pr,
 		goto end;
 	}
 
+	if (dev->discovery_type == PR_DISCOVERY_TYPE_OOB)
+		dev->pr_caps = caps;
+
 	pr_get_ranging_capabilities(pr, &caps);
 
 	if ((op_mode.protocol_type & PR_EDCA_BASED_RANGING) &&
@@ -2262,6 +2297,9 @@ static int pr_process_pasn_ranging_wrapper(struct pr_data *pr,
 			goto end;
 		}
 
+		if (dev->discovery_type == PR_DISCOVERY_TYPE_OOB)
+			dev->ntb_caps = ntb;
+
 		if (dev->ntb_caps.ista_support)
 			supp_ranging_role |= PR_ISTA_SUPPORT;
 		if (dev->ntb_caps.rsta_support)
@@ -2277,6 +2315,9 @@ static int pr_process_pasn_ranging_wrapper(struct pr_data *pr,
 				   "PR: EDCA capabilities not matching");
 			goto end;
 		}
+
+		if (dev->discovery_type == PR_DISCOVERY_TYPE_OOB)
+			dev->edca_caps = edca;
 
 		if (dev->edca_caps.ista_support)
 			supp_ranging_role |= PR_ISTA_SUPPORT;

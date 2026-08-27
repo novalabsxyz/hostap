@@ -4219,7 +4219,7 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
 	if (wpa_auth_validate_ml_kdes_m2(sm, &kde) < 0) {
 		wpa_sta_disconnect(wpa_auth, sm->addr,
 				   WLAN_REASON_PREV_AUTH_NOT_VALID);
-		return;
+		goto out;
 	}
 
 	if (vlan_id && wpa_key_mgmt_wpa_psk(sm->wpa_key_mgmt) &&
@@ -8056,7 +8056,7 @@ u8 * wpa_auth_eid_key_delivery(u8 *eid, size_t max_len,
 	u8 rsc[WPA_KEY_RSC_LEN] = {0}, *gtk;
 	struct wpa_group *gsm = sm->group;
 	u8 hdr[2];
-	u8 *kde, *buf;
+	u8 *kde, *buf, *start = eid, *end = eid + max_len;
 	const u8 *ptr;
 	size_t slice_len;
 	size_t buflen = 1024;
@@ -8079,6 +8079,7 @@ u8 * wpa_auth_eid_key_delivery(u8 *eid, size_t max_len,
 		gtk = gsm->GTK[gsm->GN - 1];
 		gtk_len = gsm->GTK_len;
 		hdr[0] = gsm->GN & 0x03; /* KeyID bits */
+		hdr[1] = 0;
 		kde = wpa_add_kde(kde, RSN_KEY_DATA_GROUPKEY, hdr, sizeof(hdr),
 				  gtk, gtk_len);
 		kde = ieee80211w_kde_add(sm, kde);
@@ -8114,6 +8115,8 @@ u8 * wpa_auth_eid_key_delivery(u8 *eid, size_t max_len,
 	 * handle fragmentation.
 	 */
 	slice_len = kde_len <= 246 ? kde_len : 246;
+	if (3 + WPA_KEY_RSC_LEN + slice_len > (size_t) (end - eid))
+		goto not_room;
 	/* ElementID(0xff)|Length(1B)|ElementID Extn(1B)|RSC(8B)|KDE list */
 	*eid++ = WLAN_EID_EXTENSION;
 	*eid++ = slice_len + 1 + WPA_KEY_RSC_LEN;
@@ -8129,6 +8132,8 @@ u8 * wpa_auth_eid_key_delivery(u8 *eid, size_t max_len,
 
 	while (kde_len) {
 		slice_len = kde_len <= 255 ? kde_len : 255;
+		if (2 + slice_len > (size_t) (end - eid))
+			goto not_room;
 		*eid++ = WLAN_EID_FRAGMENT;
 		*eid++ = slice_len;
 		os_memcpy(eid, ptr, slice_len);
@@ -8138,8 +8143,14 @@ u8 * wpa_auth_eid_key_delivery(u8 *eid, size_t max_len,
 		kde_len -= slice_len;
 	}
 
+out:
 	bin_clear_free(buf, buflen);
 	return eid;
+not_room:
+	wpa_printf(MSG_ERROR,
+		   "Not enough room for writing Key Delivery element");
+	eid = start;
+	goto out;
 }
 
 

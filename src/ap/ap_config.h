@@ -19,6 +19,9 @@
 #include "wps/wps.h"
 #include "fst/fst.h"
 #include "vlan.h"
+#ifdef CONFIG_WIFI_STATS
+#include "wifi_stats/wifi_stats.h"
+#endif /* CONFIG_WIFI_STATS */
 
 enum macaddr_acl {
 	ACCEPT_UNLESS_DENIED = 0,
@@ -670,6 +673,12 @@ struct hostapd_bss_config {
 	int sae_require_mfp;
 	int sae_confirm_immediate;
 	enum sae_pwe sae_pwe;
+	/* Accept an SAE association even when the STA advertises SAE H2E
+	 * support in the RSNXE but authenticated using hunting-and-pecking.
+	 * This is a workaround for WPA3-Personal Compatibility Mode and
+	 * RSNXE-override interoperability (e.g., some MLO STAs that add only
+	 * the RSNXE Override element and do not use H2E on 2.4/5 GHz) */
+	bool sae_accept_h2e_without_use;
 	int *sae_groups;
 	struct sae_password_entry *sae_passwords;
 	int sae_password_psk;
@@ -1016,6 +1025,8 @@ struct hostapd_bss_config {
 #ifdef CONFIG_ROBUST_AV
 	bool enable_dscp_policy_capa;
 #endif /* CONFIG_ROBUST_AV */
+
+	unsigned int gas_max_peers;
 };
 
 /**
@@ -1284,6 +1295,59 @@ struct hostapd_config {
 
 	/* Disable MCS15 Subfield in EHT operation element */
 	bool disable_mcs15_rx;
+
+#ifdef CONFIG_AFC
+	struct {
+		char *socket;
+		struct {
+			char *version;
+			char *sn;
+		} request;
+		unsigned int n_cert_ids;
+		struct afc_cert_id {
+			char *ruleset;
+			char *id;
+		} *cert_ids;
+		struct {
+			enum afc_location_type {
+				AFC_ELLIPSE,
+				AFC_LINEAR_POLYGON,
+				AFC_RADIAL_POLYGON,
+			} type;
+			unsigned int n_linear_polygon_data;
+			struct afc_linear_polygon {
+				double longitude;
+				double latitude;
+			} *linear_polygon_data;
+			unsigned int n_radial_polygon_data;
+			struct afc_radial_polygon {
+				double length;
+				double angle;
+			} *radial_polygon_data;
+			int major_axis;
+			int minor_axis;
+			int orientation;
+			double height;
+			char *height_type;
+			int vertical_tolerance;
+		} location;
+		struct wpa_freq_range_list freqs;
+		int *op_class; /* int array */
+		int min_power;
+	} afc;
+#endif /* CONFIG_AFC */
+
+#ifdef CONFIG_WIFI_STATS
+	unsigned int wifi_stats_interval;
+	unsigned int wifi_stats_wba_window;
+	unsigned int wifi_stats_ewma_weight;
+	wifi_stats_span_mode_t wifi_stats_span;
+	int wifi_stats_wba_enabled;
+	struct wifi_stats_metric_config {
+		int configured;
+		wifi_stats_agg_type_t algorithm;
+	} wifi_stats_metrics[WIFI_STATS_METRIC_COUNT];
+#endif /* CONFIG_WIFI_STATS */
 };
 
 
@@ -1446,5 +1510,6 @@ int hostapd_add_acl_maclist(struct mac_acl_entry **acl, int *num,
 void hostapd_remove_acl_mac(struct mac_acl_entry **acl, int *num,
 			    const u8 *addr);
 bool hostapd_config_check_bss_6g(struct hostapd_bss_config *bss);
+void hostapd_config_free_afc_cert_ids(struct hostapd_config *conf);
 
 #endif /* HOSTAPD_CONFIG_H */
