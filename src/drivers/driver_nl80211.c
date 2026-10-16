@@ -8790,11 +8790,17 @@ static int get_link_sta_stats(struct hostap_sta_driver_data *data,
 }
 
 
+struct get_sta_arg {
+	const u8 *addr;
+	struct hostap_sta_driver_data *data;
+};
+
 static int get_sta_handler(struct nl_msg *msg, void *arg)
 {
 	struct nlattr *tb[NL80211_ATTR_MAX + 1];
 	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
-	struct hostap_sta_driver_data *data = arg;
+	struct get_sta_arg *ctx = arg;
+	struct hostap_sta_driver_data *data = ctx->data;
 	struct nlattr *stats[NL80211_STA_INFO_MAX + 1];
 	static struct nla_policy stats_policy[NL80211_STA_INFO_MAX + 1] = {
 		[NL80211_STA_INFO_INACTIVE_TIME] = { .type = NLA_U32 },
@@ -8839,10 +8845,12 @@ static int get_sta_handler(struct nl_msg *msg, void *arg)
 		  genlmsg_attrlen(gnlh, 0), NULL);
 
 	/*
-	 * TODO: validate the interface and mac address!
-	 * Otherwise, there's a race condition as soon as
-	 * the kernel starts sending station notifications.
+	 * A kernel that does not filter a station dump by NL80211_ATTR_MAC
+	 * returns every station of the interface: use only the requested one.
 	 */
+	if (!tb[NL80211_ATTR_MAC] ||
+	    !ether_addr_equal(nla_data(tb[NL80211_ATTR_MAC]), ctx->addr))
+		return NL_SKIP;
 
 	if (!tb[NL80211_ATTR_STA_INFO] && !tb[NL80211_ATTR_MLO_LINKS]) {
 		wpa_printf(MSG_DEBUG, "sta stats missing!");
@@ -9088,6 +9096,7 @@ static int get_sta_handler(struct nl_msg *msg, void *arg)
 int nl80211_get_link_signal(struct i802_bss *bss, const u8 *bssid,
 			    struct hostap_sta_driver_data *data)
 {
+	struct get_sta_arg arg = { .addr = bssid, .data = data };
 	struct nl_msg *msg;
 
 	data->signal = -WPA_INVALID_NOISE;
@@ -9101,7 +9110,7 @@ int nl80211_get_link_signal(struct i802_bss *bss, const u8 *bssid,
 		return -ENOBUFS;
 	}
 
-	return send_and_recv_resp(bss->drv, msg, get_sta_handler, data);
+	return send_and_recv_resp(bss->drv, msg, get_sta_handler, &arg);
 }
 
 
@@ -9109,6 +9118,7 @@ static int i802_read_sta_data(struct i802_bss *bss,
 			      struct hostap_sta_driver_data *data,
 			      const u8 *addr)
 {
+	struct get_sta_arg arg = { .addr = addr, .data = data };
 	struct nl_msg *msg;
 
 	if (!(msg = nl80211_bss_msg(bss, NLM_F_DUMP,
@@ -9119,7 +9129,7 @@ static int i802_read_sta_data(struct i802_bss *bss,
 		return -ENOBUFS;
 	}
 
-	return send_and_recv_resp(bss->drv, msg, get_sta_handler, data);
+	return send_and_recv_resp(bss->drv, msg, get_sta_handler, &arg);
 }
 
 
