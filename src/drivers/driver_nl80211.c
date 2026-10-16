@@ -8793,6 +8793,7 @@ static int get_link_sta_stats(struct hostap_sta_driver_data *data,
 struct get_sta_arg {
 	const u8 *addr;
 	struct hostap_sta_driver_data *data;
+	bool found;
 };
 
 static int get_sta_handler(struct nl_msg *msg, void *arg)
@@ -8851,6 +8852,7 @@ static int get_sta_handler(struct nl_msg *msg, void *arg)
 	if (!tb[NL80211_ATTR_MAC] ||
 	    !ether_addr_equal(nla_data(tb[NL80211_ATTR_MAC]), ctx->addr))
 		return NL_SKIP;
+	ctx->found = true;
 
 	if (!tb[NL80211_ATTR_STA_INFO] && !tb[NL80211_ATTR_MLO_LINKS]) {
 		wpa_printf(MSG_DEBUG, "sta stats missing!");
@@ -9120,6 +9122,7 @@ static int i802_read_sta_data(struct i802_bss *bss,
 {
 	struct get_sta_arg arg = { .addr = addr, .data = data };
 	struct nl_msg *msg;
+	int ret;
 
 	if (!(msg = nl80211_bss_msg(bss, NLM_F_DUMP,
 				    NL80211_CMD_GET_STATION)) ||
@@ -9129,6 +9132,21 @@ static int i802_read_sta_data(struct i802_bss *bss,
 		return -ENOBUFS;
 	}
 
+	ret = send_and_recv_resp(bss->drv, msg, get_sta_handler, &arg);
+	if (ret || arg.found)
+		return ret;
+
+	/*
+	 * A dump that is not filtered by NL80211_ATTR_MAC (a kernel without
+	 * NL80211_ATTR_STA_DUMP_LINK_STATS) lists only the STAs of this
+	 * interface, not those bound to one of its AP_VLAN interfaces; a get
+	 * finds those too.
+	 */
+	if (!(msg = nl80211_bss_msg(bss, 0, NL80211_CMD_GET_STATION)) ||
+	    nla_put(msg, NL80211_ATTR_MAC, ETH_ALEN, addr)) {
+		nlmsg_free(msg);
+		return -ENOBUFS;
+	}
 	return send_and_recv_resp(bss->drv, msg, get_sta_handler, &arg);
 }
 
