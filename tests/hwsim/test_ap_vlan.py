@@ -42,6 +42,25 @@ def test_ap_vlan_open(dev, apdev):
     if filename.startswith('/tmp/'):
         os.unlink(filename)
 
+def test_ap_vlan_sta_statistics(dev, apdev):
+    """AP VLAN and the statistics of a STA bound to a VLAN interface"""
+    filename = hostapd.acl_file(dev, apdev, 'hostapd.accept')
+    hostapd.send_file(apdev[0], filename, filename)
+    params = {"ssid": "test-vlan-open",
+              "dynamic_vlan": "1",
+              "accept_mac_file": filename}
+    hapd = hostapd.add_ap(apdev[0], params)
+
+    dev[0].connect("test-vlan-open", key_mgmt="NONE", scan_freq="2412")
+    for i in range(10):
+        hwsim_utils.test_connectivity_iface(dev[0], hapd, "brvlan1")
+    sta = hapd.get_sta(dev[0].own_addr())
+    logger.info("STA: " + str(sta))
+    if int(sta['rx_packets']) < 10 or int(sta['tx_packets']) < 10:
+        raise Exception("No statistics for the STA on its VLAN interface")
+    if filename.startswith('/tmp/'):
+        os.unlink(filename)
+
 def test_ap_vlan_file_open(dev, apdev):
     """AP VLAN with open network and vlan_file mapping"""
     filename = hostapd.acl_file(dev, apdev, 'hostapd.accept')
