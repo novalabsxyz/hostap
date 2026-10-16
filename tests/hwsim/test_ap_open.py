@@ -701,6 +701,20 @@ def test_ap_open_sta_statistics(dev, apdev):
     # unrelated traffic, so for now, just print out the results in the log for
     # manual checks.
 
+def test_ap_open_sta_statistics_two_stas(dev, apdev):
+    """AP with open mode and STA statistics of two STAs"""
+    hapd = hostapd.add_ap(apdev[0], {"ssid": "open"})
+    dev[0].connect("open", key_mgmt="NONE", scan_freq="2412")
+    dev[1].connect("open", key_mgmt="NONE", scan_freq="2412")
+    for i in range(10):
+        hwsim_utils.test_connectivity(dev[0], hapd)
+    stats0 = hapd.get_sta(dev[0].own_addr())
+    stats1 = hapd.get_sta(dev[1].own_addr())
+    logger.info("stats0: " + str(stats0))
+    logger.info("stats1: " + str(stats1))
+    if int(stats0['rx_packets']) < int(stats1['rx_packets']) + 10:
+        raise Exception("Statistics of another STA reported")
+
 @remote_compatible
 def test_ap_open_poll_sta(dev, apdev):
     """AP with open mode and STA poll"""
