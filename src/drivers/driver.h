@@ -2835,6 +2835,18 @@ enum guard_interval {
 #define STA_DRV_DATA_TX_HE_GI BIT(16)
 #define STA_DRV_DATA_RX_HE_GI BIT(17)
 
+/**
+ * struct hostap_sta_link_driver_data - Statistics of one link of an MLD STA
+ */
+struct hostap_sta_link_driver_data {
+	unsigned long rx_packets, tx_packets;
+	unsigned long current_tx_rate; /* in kbps */
+	unsigned long current_rx_rate; /* in kbps */
+	unsigned long tx_retry_count;
+	unsigned long tx_retry_failed;
+	int signal; /* dBm */
+};
+
 struct hostap_sta_driver_data {
 	unsigned long rx_packets, tx_packets;
 	unsigned long long rx_bytes, tx_bytes;
@@ -2875,6 +2887,7 @@ struct hostap_sta_driver_data {
 	u8 rx_dcm, tx_dcm;
 	u16 valid_links;
 	unsigned long link_inactive_msec[MAX_NUM_MLD_LINKS];
+	struct hostap_sta_link_driver_data links[MAX_NUM_MLD_LINKS];
 };
 
 struct hostapd_sta_add_params {

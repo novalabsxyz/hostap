@@ -8750,6 +8750,27 @@ static void get_sta_tid_stats(struct hostap_sta_driver_data *data,
 }
 
 
+/* Bit rate in kbps from an NL80211_STA_INFO_{TX,RX}_BITRATE attribute */
+static unsigned long nl80211_sta_info_bitrate(struct nlattr *attr)
+{
+	struct nlattr *rate[NL80211_RATE_INFO_MAX + 1];
+	static struct nla_policy rate_policy[NL80211_RATE_INFO_MAX + 1] = {
+		[NL80211_RATE_INFO_BITRATE] = { .type = NLA_U16 },
+		[NL80211_RATE_INFO_BITRATE32] = { .type = NLA_U32 },
+	};
+
+	if (!attr ||
+	    nla_parse_nested(rate, NL80211_RATE_INFO_MAX, attr, rate_policy))
+		return 0;
+	/* 100 kbps units */
+	if (rate[NL80211_RATE_INFO_BITRATE32])
+		return nla_get_u32(rate[NL80211_RATE_INFO_BITRATE32]) * 100UL;
+	if (rate[NL80211_RATE_INFO_BITRATE])
+		return nla_get_u16(rate[NL80211_RATE_INFO_BITRATE]) * 100UL;
+	return 0;
+}
+
+
 static int get_link_sta_stats(struct hostap_sta_driver_data *data,
 			      struct nlattr **tb,
 			      struct nla_policy *stats_policy)
@@ -8760,6 +8781,7 @@ static int get_link_sta_stats(struct hostap_sta_driver_data *data,
 	nla_for_each_nested(link, tb[NL80211_ATTR_MLO_LINKS], rem) {
 		struct nlattr *stats[NL80211_STA_INFO_MAX + 1];
 		struct nlattr *link_attr[NL80211_ATTR_MAX + 1];
+		struct hostap_sta_link_driver_data *ld;
 		u8 link_id;
 
 		if (nla_parse_nested(link_attr, NL80211_ATTR_MAX, link,
@@ -8784,6 +8806,27 @@ static int get_link_sta_stats(struct hostap_sta_driver_data *data,
 		data->valid_links |= BIT(link_id);
 		data->link_inactive_msec[link_id] =
 			nla_get_u32(stats[NL80211_STA_INFO_INACTIVE_TIME]);
+
+		ld = &data->links[link_id];
+		if (stats[NL80211_STA_INFO_RX_PACKETS])
+			ld->rx_packets =
+				nla_get_u32(stats[NL80211_STA_INFO_RX_PACKETS]);
+		if (stats[NL80211_STA_INFO_TX_PACKETS])
+			ld->tx_packets =
+				nla_get_u32(stats[NL80211_STA_INFO_TX_PACKETS]);
+		if (stats[NL80211_STA_INFO_TX_RETRIES])
+			ld->tx_retry_count =
+				nla_get_u32(stats[NL80211_STA_INFO_TX_RETRIES]);
+		if (stats[NL80211_STA_INFO_TX_FAILED])
+			ld->tx_retry_failed =
+				nla_get_u32(stats[NL80211_STA_INFO_TX_FAILED]);
+		if (stats[NL80211_STA_INFO_SIGNAL])
+			ld->signal =
+				(s8) nla_get_u8(stats[NL80211_STA_INFO_SIGNAL]);
+		ld->current_tx_rate = nl80211_sta_info_bitrate(
+			stats[NL80211_STA_INFO_TX_BITRATE]);
+		ld->current_rx_rate = nl80211_sta_info_bitrate(
+			stats[NL80211_STA_INFO_RX_BITRATE]);
 	}
 
 	return 0;
