@@ -229,6 +229,18 @@ static inline int hostapd_drv_read_sta_data(
 	return hapd->driver->read_sta_data(hapd->drv_priv, data, addr);
 }
 
+static inline int hostapd_drv_read_all_sta_data(
+	struct hostapd_data *hapd,
+	void (*cb)(void *ctx, const u8 *addr,
+		   const struct hostap_sta_driver_data *data),
+	void *ctx)
+{
+	if (hapd->driver == NULL || hapd->drv_priv == NULL ||
+	    hapd->driver->read_all_sta_data == NULL)
+		return -1;
+	return hapd->driver->read_all_sta_data(hapd->drv_priv, cb, ctx);
+}
+
 static inline int hostapd_drv_sta_clear_stats(struct hostapd_data *hapd,
 					      const u8 *addr)
 {

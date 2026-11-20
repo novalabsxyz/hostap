@@ -12139,6 +12139,83 @@ static int driver_nl80211_read_sta_data(void *priv,
 }
 
 
+struct nl80211_all_sta_data_req {
+	void (*cb)(void *ctx, const u8 *addr,
+		   const struct hostap_sta_driver_data *data);
+	void *ctx;
+	struct hostap_sta_driver_data data;
+	u8 addr[ETH_ALEN];
+	bool pending;
+};
+
+
+/*
+ * With NL80211_ATTR_STA_DUMP_LINK_STATS, the kernel follows the message of an
+ * MLD station with one message for each of its links, all for the same
+ * address. A station is thus complete only once the next one starts or the
+ * dump ends.
+ */
+static int get_all_sta_handler(struct nl_msg *msg, void *arg)
+{
+	struct nl80211_all_sta_data_req *req = arg;
+	struct get_sta_arg sta = { .addr = req->addr, .data = &req->data };
+	struct nlattr *tb[NL80211_ATTR_MAX + 1];
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	const u8 *addr;
+
+	nla_parse(tb, NL80211_ATTR_MAX, genlmsg_attrdata(gnlh, 0),
+		  genlmsg_attrlen(gnlh, 0), NULL);
+	if (!tb[NL80211_ATTR_MAC] ||
+	    nla_len(tb[NL80211_ATTR_MAC]) != ETH_ALEN)
+		return NL_SKIP;
+	addr = nla_data(tb[NL80211_ATTR_MAC]);
+
+	if (req->pending && !ether_addr_equal(addr, req->addr)) {
+		req->cb(req->ctx, req->addr, &req->data);
+		req->pending = false;
+	}
+
+	if (!req->pending) {
+		os_memset(&req->data, 0, sizeof(req->data));
+		os_memcpy(req->addr, addr, ETH_ALEN);
+		req->pending = true;
+	}
+
+	return get_sta_handler(msg, &sta);
+}
+
+
+static int driver_nl80211_read_all_sta_data(
+	void *priv,
+	void (*cb)(void *ctx, const u8 *addr,
+		   const struct hostap_sta_driver_data *data),
+	void *ctx)
+{
+	struct i802_bss *bss = priv;
+	struct nl80211_all_sta_data_req req;
+	struct nl_msg *msg;
+	int ret;
+
+	os_memset(&req, 0, sizeof(req));
+	req.cb = cb;
+	req.ctx = ctx;
+
+	if (!(msg = nl80211_bss_msg(bss, NLM_F_DUMP,
+				    NL80211_CMD_GET_STATION)) ||
+	    nla_put_flag(msg, NL80211_ATTR_STA_DUMP_LINK_STATS)) {
+		nlmsg_free(msg);
+		return -ENOBUFS;
+	}
+
+	ret = send_and_recv_resp(bss->drv, msg, get_all_sta_handler, &req);
+	/* The last station of a failed dump may be missing link messages */
+	if (ret == 0 && req.pending)
+		cb(ctx, req.addr, &req.data);
+
+	return ret;
+}
+
+
 static int driver_nl80211_send_action(void *priv, unsigned int freq,
 				      unsigned int wait_time,
 				      const u8 *dst, const u8 *src,
@@ -17029,6 +17106,7 @@ const struct wpa_driver_ops wpa_driver_nl80211_ops = {
 	.sta_deauth = i802_sta_deauth,
 	.sta_disassoc = i802_sta_disassoc,
 	.read_sta_data = driver_nl80211_read_sta_data,
+	.read_all_sta_data = driver_nl80211_read_all_sta_data,
 	.set_freq = i802_set_freq,
 	.send_action = driver_nl80211_send_action,
 	.send_action_cancel_wait = wpa_driver_nl80211_send_action_cancel_wait,

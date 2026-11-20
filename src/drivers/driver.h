@@ -4261,6 +4261,30 @@ struct wpa_driver_ops {
 			     const u8 *addr);
 
 	/**
+	 * read_all_sta_data - Fetch the data of all stations
+	 * @priv: Private driver interface data
+	 * @cb: Callback function, called once for each station
+	 * @ctx: Context pointer for the callback function
+	 * Returns: 0 on success, negative value on failure
+	 *
+	 * This is an optional function to fetch with a single request what
+	 * read_sta_data() returns for each station of the BSS; for an AP MLD,
+	 * that is the stations of all its links. A station on an AP_VLAN
+	 * interface is not included; read_sta_data() needs to be used for it.
+	 * If the request fails, the callback function may already have been
+	 * called for some of the stations.
+	 *
+	 * The data is valid only for the duration of the callback function,
+	 * which may be called while the response from the driver is still being
+	 * received and thus must not call driver operations.
+	 */
+	int (*read_all_sta_data)(void *priv,
+				 void (*cb)(void *ctx, const u8 *addr,
+					    const struct hostap_sta_driver_data
+					    *data),
+				 void *ctx);
+
+	/**
 	 * tx_control_port - Send a frame over the 802.1X controlled port
 	 * @priv: Private driver interface data
 	 * @dest: Destination MAC address
