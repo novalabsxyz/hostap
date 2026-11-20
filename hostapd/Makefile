@@ -107,6 +107,9 @@ endif
 ifdef CONFIG_MODULE_TESTS
 CFLAGS += -DCONFIG_MODULE_TESTS
 OBJS += hapd_module_tests.o
+ifdef CONFIG_WIFI_STATS
+OBJS += ../src/ap/wifi_stats_module_tests.o
+endif
 endif
 
 ifdef CONFIG_WPA_TRACE

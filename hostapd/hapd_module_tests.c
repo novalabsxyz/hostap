@@ -13,6 +13,14 @@
 
 int hapd_module_tests(void)
 {
+	int ret = 0;
+
 	wpa_printf(MSG_INFO, "hostapd module tests");
-	return 0;
+
+#ifdef CONFIG_WIFI_STATS
+	if (wifi_stats_module_tests() < 0)
+		ret = -1;
+#endif /* CONFIG_WIFI_STATS */
+
+	return ret;
 }
